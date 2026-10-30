@@ -4,13 +4,13 @@
  function render(s){
   if(!s.ok)throw new Error(s.message||'聊天记录暂不可用');
   serverBusy=!!s.pending;
-  for(const id of ['chat-new','chat-sessions','chat-mode','chat-memory','chat-send','chat-input'])get(id).disabled=sending||serverBusy;
-  get('chat-mode').value=s.mode;get('chat-memory').checked=s.useMemory;
+  for(const id of ['chat-new','chat-sessions','chat-memory','chat-send','chat-input'])get(id).disabled=sending||serverBusy;
+  get('chat-memory').checked=s.useMemory;
   const third=s.provider?.kind==='third-party';
-  get('chat-mode').closest('label').hidden=third;
-  get('chat-hint').textContent=third?`当前用第三方 API「${s.provider.name}」· ${s.provider.model} · 发送才计费 · 回复逐字显示`:'发送才消耗额度 · 回复逐字显示 · 每个聊天独立上下文';
+  get('chat-model-source').textContent=third?`模型来源：第三方 API「${s.provider.name || '未配置'}」 · ${s.provider.model || '请补全配置'}`:'模型来源：本机 Codex 配置（含 CC Switch 中转），不限制模型系列或思考档位';
+  get('chat-hint').textContent=third?`当前用第三方 API「${s.provider.name}」· ${s.provider.model} · 发送才计费 · 回复逐字显示`:'当前用本机 Codex（含 CC Switch 中转）· 发送才调用模型 · 回复逐字显示';
   get('chat-memory-note').hidden=!third;get('chat-memory-note').textContent=third?`开启时，画像会随消息一起发给「${s.provider.name}」。`:'';
-  get('memory-preview').textContent=s.memory?.available?s.memory.text:'Codex 尚未记录这些个人信息。可以在下方补充，空缺的信息不会猜测。';
+  get('memory-preview').textContent=s.memory?.available?s.memory.text:'可以直接在下方填写画像，不需要登录任何账号。未开启或没有本地摘要时，不会读取或猜测个人信息。';
   if(!get('profile-notes').dataset.dirty&&document.activeElement!==get('profile-notes'))get('profile-notes').value=s.memory?.notes||'';
   get('profile-save').disabled=sending||serverBusy;
   renderPersona(s);
@@ -46,7 +46,7 @@
  get('chat-expand').onclick=()=>{expand(!expanded);refresh().catch(e=>get('chat-result').textContent=e.message);};
  get('chat-new').onclick=async()=>{try{render(await command({action:'new'}));get('chat-input').value='';get('chat-result').textContent='新的聊天开始啦，之前的记录仍在。';expand(true);}catch(e){get('chat-result').textContent=e.message;}};
  get('chat-sessions').onchange=async()=>{try{render(await command({action:'select',id:get('chat-sessions').value}));get('chat-result').textContent='';}catch(e){get('chat-result').textContent=e.message;}};
- for(const id of ['chat-mode','chat-memory'])get(id).onchange=async()=>{try{render(await command({action:'settings',mode:get('chat-mode').value,useMemory:get('chat-memory').checked}));}catch(e){get('chat-result').textContent=e.message;}};
+ get('chat-memory').onchange=async()=>{try{render(await command({action:'settings',useMemory:get('chat-memory').checked}));}catch(e){get('chat-result').textContent=e.message;}};
  get('profile-notes').oninput=()=>{get('profile-notes').dataset.dirty='1';};
  get('profile-save').onclick=async()=>{try{const s=await command({action:'profile',notes:get('profile-notes').value});delete get('profile-notes').dataset.dirty;render(s);get('profile-status').textContent='已保存，下次聊天就会参考。只保存在桌宠里，不修改 Codex 原始记忆。';}catch(e){get('profile-status').textContent=e.message;}};
  for(const id of ['persona-name','persona-call','persona-preset','persona-notes','persona-state','persona-actions'])get(id).addEventListener('input',()=>{get('persona-box').dataset.dirty='1';personaNotes();});
@@ -54,7 +54,7 @@
  get('chat-form').onsubmit=async event=>{
   event.preventDefault();const text=get('chat-input').value.trim();if(!text||sending||serverBusy)return;
   sending=true;get('chat-send').disabled=true;get('chat-result').textContent='收到！本鱼来啦…';expand(true);
-  try{const response=command({action:'send',text});schedulePoll(100);const r=await response;get('chat-input').value='';get('chat-result').textContent=(r.provider?`${r.provider} · ${r.model||'模型'}`:`${r.model||'Codex'} · low`)+(r.action?` · 动作：${r.action}`:'');}catch(e){get('chat-result').textContent=e.message;}finally{sending=false;await refresh().catch(()=>{});}
+  try{const response=command({action:'send',text});schedulePoll(100);const r=await response;get('chat-input').value='';get('chat-result').textContent=(r.provider?`${r.provider} · ${r.model||'模型'}`:`本机配置 · ${r.model||'当前模型'}`)+(r.action?` · 动作：${r.action}`:'');}catch(e){get('chat-result').textContent=e.message;}finally{sending=false;await refresh().catch(()=>{});}
  };
  function schedulePoll(ms){clearTimeout(pollTimer);pollTimer=setTimeout(poll,ms);}
  async function poll(){if(polling){schedulePoll(100);return;}polling=true;try{await refresh();}catch(e){if(!sending){pollError=e.message;get('chat-result').textContent=pollError;}}finally{polling=false;schedulePoll(sending||serverBusy?150:2000);}}poll();

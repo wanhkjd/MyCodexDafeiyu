@@ -3431,18 +3431,6 @@ function apply(ctx) {
 				}
 			};
 		}
-		if (rest === "reset" && method === "POST") {
-			const result = await (await import(new URL("../runtime/codex-reset.mjs", import.meta.url).href)).queryReset();
-			state.writePet("main", "say", {
-				text: result.text,
-				animation: result.animation
-			});
-			return {
-				kind: "json",
-				status: 200,
-				obj: result
-			};
-		}
 		if (rest === "whisper") {
 			if (method !== "POST") return {
 				kind: "json",

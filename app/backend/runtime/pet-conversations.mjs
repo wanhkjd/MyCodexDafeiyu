@@ -2,8 +2,7 @@ import {readFileSync,writeFileSync,renameSync,existsSync,mkdirSync} from 'node:f
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import {chat as codexChat} from './codex-chat.mjs';
-import * as thirdParty from './third-party-llm.mjs';
+import {createModelRouter} from './model-router.mjs';
 import * as persona from './persona.mjs';
 export function readUserSummary(home=process.env.CODEX_HOME||join(homedir(),'.codex')){
  const file=join(home,'memories','memory_summary.md');
@@ -19,7 +18,8 @@ const stores=new Map();
 export function conversations(dir,generate){
  if(stores.has(dir))return stores.get(dir);
  // Pick the model per message so switching it in the manager window applies without a restart.
- const reply=typeof generate==='function'?generate:(...args)=>thirdParty.status(dir).kind==='third-party'?thirdParty.chat(...args):codexChat(...args);
+ const model=createModelRouter(dir);
+ const reply=typeof generate==='function'?generate:model.chat;
  mkdirSync(dir,{recursive:true});const file=join(dir,'pet-conversations.json');
  const fresh=()=>({id:randomUUID(),title:'新的鱼塘',messages:[],createdAt:Date.now()});
  let data;
@@ -28,31 +28,34 @@ export function conversations(dir,generate){
    catch{
     // Keep the damaged file for recovery instead of leaving chat broken for good.
     renameSync(file,`${file}.corrupt-${Date.now()}.bak`);
-    const first=fresh();first.title='聊天记录已重建';data={active:first.id,mode:'auto',useMemory:true,sessions:[first]};
+    const first=fresh();first.title='聊天记录已重建';data={active:first.id,mode:'auto',useMemory:false,sessions:[first]};
    }
  }
  else{
    const first=fresh();try{const old=JSON.parse(readFileSync(join(dir,'dsh-pet','memory.json'),'utf8'));const messages=old.main?.main?.messages;if(Array.isArray(messages)&&messages.length){first.messages=messages;first.title='之前和本鱼的聊天';}}catch{}
-   data={active:first.id,mode:'auto',useMemory:true,sessions:[first]};
+   data={active:first.id,mode:'auto',useMemory:false,sessions:[first]};
  }
+ // Old Sol/Luna selections must not override the local gateway's configured model.
+ data.mode='auto';
+ if(typeof data.useMemory!=='boolean')data.useMemory=false;
  const save=()=>{writeFileSync(file+'.tmp',JSON.stringify(data,null,2));renameSync(file+'.tmp',file);};save();
  let pending=null;
  const current=()=>data.sessions.find(s=>s.id===data.active)||data.sessions[0];
  const profile=()=>{
-  const automatic=readUserSummary(),notes=String(data.profileNotes||'').trim();
+  const automatic=data.useMemory?readUserSummary():{available:false,text:'',source:'本地记忆读取未开启'},notes=String(data.profileNotes||'').trim();
   const text=[automatic.text?`【Codex 对用户的既有了解，可能过期】\n${automatic.text}`:'',notes?`【用户亲自补充或纠正，以此为准】\n${notes}`:''].filter(Boolean).join('\n\n');
   return {...automatic,available:!!text,text,notes};
  };
  // Her persona settings (persona.json) and a preview of exactly what the model is told.
- const providerOf=()=>thirdParty.status(dir).kind==='third-party'?'third-party':'codex';
+ const providerOf=()=>model.status().kind==='third-party'?'third-party':'codex';
  const personaView=()=>{const settings=persona.readPersona(dir);return {...settings,presets:persona.PRESETS,limits:persona.LIMITS,preview:persona.buildPersona(settings,{provider:providerOf()})};};
- const snapshot=()=>({ok:true,active:current().id,mode:data.mode,useMemory:data.useMemory,sessions:data.sessions.map(({id,title,createdAt})=>({id,title,createdAt})),messages:current().messages,pending:pending&&{...pending,text:persona.hideTag(pending.text)},memory:profile(),provider:thirdParty.status(dir),persona:personaView()});
+ const snapshot=()=>({ok:true,active:current().id,mode:data.mode,useMemory:data.useMemory,sessions:data.sessions.map(({id,title,createdAt})=>({id,title,createdAt})),messages:current().messages,pending:pending&&{...pending,text:persona.hideTag(pending.text)},memory:profile(),provider:model.status(),persona:personaView()});
  // extras.state: the mood panel's data at the moment you send, for her 「此刻」.
  const command=async (body,extras={})=>{
   if(pending)return {ok:false,message:'本鱼还在回上一句，等一下再操作～'};
   if(body.action==='new'){const s=fresh();data.sessions.unshift(s);data.active=s.id;save();return snapshot();}
   if(body.action==='select'){if(!data.sessions.some(s=>s.id===body.id))return {ok:false,message:'找不到这个聊天'};data.active=body.id;save();return snapshot();}
-  if(body.action==='settings'){if(['auto','sol','luna'].includes(body.mode))data.mode=body.mode;if(typeof body.useMemory==='boolean')data.useMemory=body.useMemory;save();return snapshot();}
+  if(body.action==='settings'){data.mode='auto';if(typeof body.useMemory==='boolean')data.useMemory=body.useMemory;save();return snapshot();}
   if(body.action==='profile'){
    if(typeof body.notes!=='string'||body.notes.length>3000)return {ok:false,message:'画像补充请控制在 3000 字以内'};
    data.profileNotes=body.notes.trim();save();return snapshot();
@@ -64,7 +67,7 @@ export function conversations(dir,generate){
   pending={sessionId:session.id,text:'',startedAt:Date.now()};
   try{
    // A video link: with her Bilibili life on, she reads (and looks at) the video first. It goes in front of your words, never into the history.
-   const material=extras.bili&&providerOf()==='third-party'?await extras.bili.chatMaterial(text).catch(()=>''):'';
+   const material=extras.bili?await extras.bili.chatMaterial(text).catch(()=>''):'';
    const now=settings.shareState?[persona.describeState(extras.state),extras.bili?.todayLine()].filter(Boolean).join('\n'):'';
    const result=await reply(text,history,dir,{mode:data.mode,memory:data.useMemory?profile().text:'',persona:persona.buildPersona(settings,{provider:providerOf()}),state:[now,material].filter(Boolean).join('\n\n'),onDelta:delta=>{pending.text+=String(delta??'');}});
    if(!result.ok){user.error=result.message||'回复失败';save();return result;}

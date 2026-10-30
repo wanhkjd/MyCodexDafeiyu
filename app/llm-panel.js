@@ -3,7 +3,7 @@
 const card=document.createElement('section');
 card.id='llm-card';card.className='quota-card llm-card';
 card.innerHTML=`<div class="section-title"><h2>聊天用的大模型</h2><button id="llm-toggle" class="text-button" type="button" aria-expanded="false" disabled>设置</button></div>
-<label class="memory-toggle"><input type="checkbox" id="llm-enabled" disabled>用第三方 API 聊天（关闭时用 Codex 账号）</label>
+<label class="memory-toggle"><input type="checkbox" id="llm-enabled" disabled>用第三方 API（关闭时跟随本机 Codex，含 CC Switch 中转）</label>
 <p id="llm-summary" class="muted">正在读取模型设置…</p>
 <div id="llm-form" hidden>
 <div class="llm-field"><span>使用的配置</span><div class="llm-row"><select id="llm-profile" aria-label="使用的配置"></select><button id="llm-add" type="button">＋ 新增</button><button id="llm-remove" type="button">删除</button></div></div>
@@ -17,7 +17,7 @@ card.innerHTML=`<div class="section-title"><h2>聊天用的大模型</h2><button
 <label>网络代理<select id="llm-proxy-mode"><option value="system">跟随系统代理</option><option value="direct">不用代理（直连）</option><option value="custom">指定代理端口</option></select></label>
 <label id="llm-proxy-row">代理端口或地址<input id="llm-proxy" maxlength="200" spellcheck="false" placeholder="7890 或 127.0.0.1:7890"></label>
 <details><summary>高级设置</summary><div class="llm-grid"><label>温度（0–2）<input id="llm-temperature" type="number" min="0" max="2" step="0.1"></label><label>最大输出 token<input id="llm-max-tokens" type="number" min="32" max="32768" step="1"></label><label>超时（秒，10–110）<input id="llm-timeout" type="number" min="10" max="110" step="1"></label><label>携带历史轮数<input id="llm-history" type="number" min="0" max="20" step="1"></label></div></details>
-<details id="llm-vision-box"><summary>识图（看画面用）</summary><p class="muted">「她的 B 站」看画面时，把截下来的九宫格交给这里选的模型。不能看图的模型会在测试时露馅。</p>
+<details id="llm-vision-box"><summary>识图（看画面用）</summary><p class="muted">启用第三方 API 时，「她的 B 站」把九宫格交给这里选的模型；关闭第三方 API 时，跟随本机 Codex 的当前模型（含 CC Switch 中转），无需在这里配置。画面识别需要模型支持图片。</p>
 <label>用哪套配置<select id="llm-vision-profile"></select></label>
 <label>识图模型名<input id="llm-vision-model" maxlength="160" spellcheck="false" placeholder="留空就用那套配置的模型，例如 glm-4.6v-flash"></label>
 <div class="llm-row"><button id="llm-vision-test" type="button">测试识图</button></div><p id="llm-vision-status" class="muted" role="status"></p></details>
@@ -73,7 +73,9 @@ function apply(next){
  typedKeys={};clearKeys=new Set();$('llm-model-list').hidden=true;
  const p=next.profiles.find(item=>item.id===next.active);
  $('llm-enabled').checked=next.enabled;
- $('llm-summary').textContent=next.enabled&&p?`当前：${p.name} · ${p.model} · ${proxyLabel(p)}${p.hasKey||keyless(p)?'':' · 还没保存 Key'}`:'当前用 Codex 账号聊天；勾选上方开关并保存配置后改用第三方 API。';
+ $('llm-summary').textContent=next.enabled
+  ? p?.baseUrl&&p.model?`当前：${p.name} · ${p.model} · ${proxyLabel(p)}${p.hasKey||keyless(p)?'':' · 还没保存 Key'}`:'第三方 API 已启用，但配置不完整；请补全 API 地址和模型，不会自动切回 Codex。'
+  : '当前跟随本机 Codex 配置（含 CC Switch 中转）；聊天、B 站内容理解和看画面共用此开关。';
  fillForm();
 }
 function expand(value){$('llm-form').hidden=!value;$('llm-toggle').textContent=value?'收起':'设置';$('llm-toggle').setAttribute('aria-expanded',String(value));}
@@ -120,7 +122,7 @@ $('llm-test').onclick=async()=>{
  const result=await run({action:'test',...target()},'正在测试连接…');if(!result)return;
  status(result.reply?`✅ 连接成功（${result.seconds} 秒），${result.model} 回复：${result.reply}`:`✅ 连接成功（${result.seconds} 秒），但模型没给出正文：开着思考模式时可能把输出都用来思考了，聊天一般不受影响。`);
 };
-$('llm-save').onclick=()=>save($('llm-enabled').checked,(name,enabled)=>enabled?`已保存，聊天现在使用「${name}」。`:'已保存。当前仍用 Codex 聊天，勾选上方开关即可切换。');
+$('llm-save').onclick=()=>save($('llm-enabled').checked,(name,enabled)=>enabled?`已保存，聊天和 B 站内容理解现在使用「${name}」。`:'已保存。当前跟随本机 Codex（含 CC Switch 中转），勾选上方开关即可切换。');
 $('llm-vision-test').onclick=async()=>{
  readForm();
  const v=draft.vision,p=draft.profiles.find(item=>item.id===v.profile)||current();
@@ -131,7 +133,7 @@ $('llm-vision-test').onclick=async()=>{
 };
 $('llm-enabled').onchange=()=>{
  const on=$('llm-enabled').checked;if(on)expand(true);
- save(on,(name,enabled)=>enabled?`已启用：聊天改用「${name}」。`:'已切回 Codex 账号聊天，第三方配置仍保留。');
+ save(on,(name,enabled)=>enabled?`已启用：聊天和 B 站内容理解改用「${name}」。`:'已切回本机 Codex（含 CC Switch 中转），第三方配置仍保留。');
 };
 async function load(){
  try{

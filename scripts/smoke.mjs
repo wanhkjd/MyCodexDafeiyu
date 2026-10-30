@@ -80,7 +80,22 @@ try {
   assert.ok((await fs.stat(path.join(profile, 'quotes.json'))).size > 0);
   const conf = JSON.parse(await fs.readFile(path.join(profile, 'dsh-pet/main-config.jsonc'), 'utf8'));
   assert.equal(conf.pets[0].id, 'main');
-  console.log('Smoke passed: backend ready, unauthenticated requests rejected, defaults seeded, pet animation decoded.');
+  // Exercise the renderer's own context menu, not just the separate manager/tray UI.
+  const menu = await evaluate(page.webSocketDebuggerUrl, `(() => {
+    const hit = document.querySelector('.pet-hit');
+    if (!hit) throw new Error('Pet hit target not found');
+    const rect = hit.getBoundingClientRect();
+    hit.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }));
+    const column = document.querySelector('.dsh-pet-menu > .dsh-pet-menu-column');
+    const labels = column ? [...column.children].map(item => item.querySelector('span')?.textContent || '') : [];
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return labels;
+  })()`);
+  assert.ok(menu.includes('和本鱼对话'), 'The actual pet context menu did not open');
+  assert.ok(menu.includes('控制大肥鱼 · WASD / 扔白饭'), 'Other pet actions must be preserved');
+  assert.ok(!menu.some(label => /Codex.*重置/.test(label)), 'Retired reset query remains in the actual pet context menu');
+  frame.menu = menu;
+  console.log('Smoke passed: backend ready, unauthenticated requests rejected, defaults seeded, pet animation decoded, actual context menu has no reset query.');
   console.log(JSON.stringify(frame));
 } catch (error) { console.error(error); process.exitCode = 1; }
 finally {

@@ -79,7 +79,7 @@ export function normalizeConfig(raw) {
   // 识图 (看画面): which saved profile looks at pictures ('' = the chat profile) and an optional model name override.
   const vision = source.vision && typeof source.vision === 'object' ? source.vision : {};
   return {
-    version: 2, enabled: source.enabled === true && profiles.length > 0, active, profiles,
+    version: 2, enabled: source.enabled === true, active, profiles,
     vision: { profile: profiles.some(p => p.id === vision.profile) ? vision.profile : '', model: text(vision.model, 160) },
   };
 }
@@ -100,13 +100,13 @@ function visionProfile(config) {
   return base ? { ...base, model: config.vision.model || base.model } : null;
 }
 
-/** Which model answers chats right now: the enabled, complete third-party profile, otherwise Codex. */
+/** The switch selects the provider; incomplete enabled settings must not silently fall back to Codex. */
 export function status(dataDir = homeDir()) {
   const config = readConfig(dataDir);
   const profile = activeProfile(config);
-  return config.enabled && profile?.baseUrl && profile.model
-    ? { kind: 'third-party', name: profile.name, model: profile.model }
-    : { kind: 'codex' };
+  if (!config.enabled) return { kind: 'codex' };
+  if (profile?.baseUrl && profile.model) return { kind: 'third-party', name: profile.name, model: profile.model };
+  return { kind: 'third-party', ready: false, name: profile?.name || '', model: profile?.model || '', message: '第三方 API 已启用，请补全 API 地址和模型' };
 }
 
 export function setKeys(map) {
@@ -447,7 +447,7 @@ export async function chat(text, history = [], dataDir = homeDir(), options = {}
  */
 export async function generate({ system, prompt, maxTokens = 1500 }, dataDir = homeDir()) {
   const config = readConfig(dataDir), profile = activeProfile(config);
-  if (!config.enabled || !profile?.baseUrl || !profile.model) throw new Error('先在「聊天用的大模型」里启用第三方 API');
+  if (!config.enabled || !profile?.baseUrl || !profile.model) throw new Error('第三方 API 未启用或配置不完整');
   const apiKey = keys.get(profile.id) || '';
   assertKeyTransport(profile.baseUrl, apiKey);
   const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];

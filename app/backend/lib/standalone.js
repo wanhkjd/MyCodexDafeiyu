@@ -2653,7 +2653,7 @@ function apply(ctx) {
 			import(new URL("../runtime/bili/life.mjs", import.meta.url).href),
 			import(new URL("../runtime/bili/api.mjs", import.meta.url).href),
 			import(new URL("../runtime/bili/frames.mjs", import.meta.url).href),
-			import(new URL("../runtime/third-party-llm.mjs", import.meta.url).href),
+			import(new URL("../runtime/model-router.mjs", import.meta.url).href),
 			import(new URL("../runtime/persona.mjs", import.meta.url).href)
 		]).then(([life, api, frames, llm, persona]) => {
 			if (disposed$1) return;
@@ -2662,12 +2662,7 @@ function apply(ctx) {
 			service = life.lifeService({
 				dataDir: home,
 				client,
-				llm: {
-					generate: (options) => llm.generate(options, home),
-					see: (options) => llm.see(options, home),
-					status: () => llm.status(home),
-					visionStatus: () => llm.visionStatus(home)
-				},
+				llm: llm.createModelRouter(home),
 				grab: (video, timeoutMs) => frames.grabGrid({ client, video, dir: join(home, "bili", "frames"), timeoutMs }),
 				mood: () => mood,
 				say: (said) => state.writePet("main", "say", said),
@@ -2958,6 +2953,8 @@ function apply(ctx) {
 		} : v;
 		try {
 			const sel = ctx.agentDefaultModel.currentSelection();
+			// Account quotas are an explicit optional query, never a startup/chat prerequisite.
+			if (!manual && sel.provider === "codex") return;
 			const result = await queryBalance(
 				sel.provider,
 				async (ref) => {
@@ -3663,18 +3660,6 @@ function apply(ctx) {
 				kind: "json",
 				status: 200,
 				obj: payload?.type === "event" ? mood.event(String(payload.event ?? "")) : mood.command(payload)
-			};
-		}
-		if (rest === "reset" && method === "POST") {
-			const result = await (await import(new URL("../runtime/codex-reset.mjs", import.meta.url).href)).queryReset();
-			state.writePet("main", "say", {
-				text: result.text,
-				animation: result.animation
-			});
-			return {
-				kind: "json",
-				status: 200,
-				obj: result
 			};
 		}
 		if (rest === "whisper") {

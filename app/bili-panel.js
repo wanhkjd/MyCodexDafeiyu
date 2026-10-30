@@ -40,7 +40,7 @@
 
   function summary(s) {
     if (!s.enabled) return '关着：她不会去 B 站。打开后，她会在你设定的时段里随机醒来刷 B 站、写日记，把值得看的分享给你。';
-    const warn = !s.llm.ready ? '⚠ 先在「聊天用的大模型」里启用第三方 API，她才能看懂视频。'
+    const warn = !s.llm.ready ? '⚠ ' + (s.llm.message || '当前大模型不可用，请检查模型配置。')
       : s.api.banned ? `⚠ B 站限流中，约 ${s.api.bannedMinutes} 分钟后恢复。` : '';
     const next = s.plan.find(w => w.state === 'planned');
     const today = `今天：醒了 ${s.today.wakes} 次，看了 ${s.today.watched} 条，分享 ${s.today.shared.length} 条`;
@@ -48,7 +48,8 @@
     const who = s.account ? `登录：${s.account.name}` : '未登录（读不到大部分字幕，建议扫码登录她的号）';
     const quiet = s.silence.band === 'quiet' ? `；你已经 ${s.silence.days} 天没回应她的分享了，她安静了一些` : s.silence.band === 'faint' ? `；你已经 ${s.silence.days} 天没回应她的分享了，她暂时不分享了` : '';
     const last = s.lastWake && !s.lastWake.ok && s.lastWake.message ? `\n上次醒来（${timeOf(s.lastWake.at)}）没看成：${s.lastWake.message}` : '';
-    return [warn, `${today} · ${plan} · ${who}${quiet}`].filter(Boolean).join('\n') + last;
+    const model = s.llm.kind === 'codex' ? '模型：跟随本机 Codex（含 CC Switch 中转）' : `模型：${s.llm.name} · ${s.llm.model}`;
+    return [warn, model, `${today} · ${plan} · ${who}${quiet}`].filter(Boolean).join('\n') + last;
   }
 
   function renderShares(items) {
@@ -172,7 +173,8 @@
     $('bili-logout').hidden = !s.account;
     $('bili-login').textContent = s.account ? '换个号扫码' : '扫码登录';
     $('bili-vision').textContent = s.vision.ok
-      ? `识图：用「${s.vision.name}」的 ${s.vision.model}${s.vision.sameAsChat ? '（和聊天相同，不能看图的模型会在「测试识图」时露馅）' : ''}`
+      ? s.vision.kind === 'codex' ? '识图：跟随本机 Codex（含 CC Switch 中转），需要当前模型支持图片；失败时仍可阅读视频文字资料。'
+        : `识图：用「${s.vision.name}」的 ${s.vision.model}${s.vision.sameAsChat ? '（和聊天相同，不能看图的模型会在「测试识图」时露馅）' : ''}`
       : '⚠ 还没有识图配置：在「聊天用的大模型」→「识图」里选好并点「测试识图」。';
     if (first || !dirty) fillForm(s);
     schedule(s.running ? 2500 : 20000);

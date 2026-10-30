@@ -57,7 +57,7 @@ function checkPackage(root, { source = false } = {}) {
     'backend/assets/config.jsonc','backend/runtime/electron-helper/main.js','assets/icon.ico',
     'defaults/quotes.json','defaults/dsh-pet/main-config.jsonc',
     'reminders-panel.js','backend/runtime/reminders.mjs','backend/runtime/quota-cache.mjs',
-    'llm-panel.js','backend/runtime/third-party-llm.mjs',
+    'llm-panel.js','backend/runtime/third-party-llm.mjs','backend/runtime/model-router.mjs','backend/runtime/codex-chat.mjs',
     'mood-panel.js','backend/runtime/mood.mjs','defaults/mood-quotes.json','backend/runtime/persona.mjs',
     'bili-panel.js','bili-login.cjs','node_modules/qrcode/lib/core/qrcode.js','node_modules/dijkstrajs/dijkstra.js',
     'backend/runtime/bili/api.mjs','backend/runtime/bili/feed.mjs','backend/runtime/bili/watch.mjs','backend/runtime/bili/frames.mjs',

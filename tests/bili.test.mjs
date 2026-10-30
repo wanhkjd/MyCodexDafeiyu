@@ -358,8 +358,8 @@ test('reactions count: 👍 lifts affection and resets the silence; the switch, 
   assert.equal(after.shares[0].reaction, 'like');
   assert.equal(after.silence.band, 'normal');
   assert.deepEqual(s.mood.events, ['chat']);
-  const noModel = service({ videos: CATS, model: { ...fakeModel(), status: () => ({ kind: 'codex' }) } });
-  assert.match((await noModel.svc.wake({ manual: true })).message, /启用第三方 API/);
+  const noModel = service({ videos: CATS, model: { ...fakeModel(), status: () => ({ kind: 'third-party', ready: false, message: '第三方配置不完整' }) } });
+  assert.match((await noModel.svc.wake({ manual: true })).message, /第三方配置不完整/);
   const off = service({ videos: CATS, settings: { enabled: false } });
   assert.match(off.svc.command({ action: 'wake' }).message, /先打开/);
   assert.equal(await off.svc.chatMaterial('看看 BV1aaaaaaaaa'), '', 'switch off: she does not touch Bilibili');
@@ -452,7 +452,29 @@ test('third-party model: the 识图 setting is kept, and pictures go out as Open
     assert.equal(bodies.at(-1).model, 'other-vision');
     assert.match(bodies.at(-1).messages[0].content[1].image_url.url, /^data:image\/jpeg;base64,\/9j\//, 'her own picture (a JPEG)');
     await llm.command(home, { action: 'save', config: { enabled: false, active: 'chat', profiles: [profile('chat')] } });
-    await assert.rejects(llm.generate({ prompt: 'x' }, home), /启用第三方 API/);
+    await assert.rejects(llm.generate({ prompt: 'x' }, home), /第三方 API 未启用或配置不完整/);
     assert.equal(llm.visionStatus(home).sameAsChat, true, 'a removed vision profile falls back to the chat one');
   } finally { server.close(); }
+});
+
+test('Codex runs the whole Bilibili wake, including frames and diaries, without third-party API', async () => {
+  const model = { ...fakeModel(), status: () => ({ kind: 'codex', ready: true, name: '本机 Codex' }), visionStatus: () => ({ ok: true, kind: 'codex', sameAsChat: true }) };
+  const s = service({ videos: CATS, model, settings: { frames: true } });
+  assert.equal(s.svc.view().llm.ready, true);
+  assert.equal(s.svc.view().llm.kind, 'codex');
+  const result = await s.svc.wake({ manual: true });
+  assert.equal(result.ok, true, result.message);
+  assert.ok(result.shared);
+  assert.ok(model.asked.some(a => a.prompt.includes('【画面】')));
+  assert.ok(s.svc.view().letter.length);
+  assert.ok(s.svc.view().private.length);
+});
+
+test('Codex errors are shown as-is, not as a requirement to enable third-party API', async () => {
+  const model = { ...fakeModel(), status: () => ({ kind: 'codex' }), generate: async () => { throw new Error('Codex 中转服务暂不可用'); } };
+  const s = service({ videos: CATS, model });
+  const result = await s.svc.wake({ manual: true });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Codex 中转服务暂不可用/);
+  assert.doesNotMatch(result.message, /启用第三方/);
 });

@@ -188,10 +188,9 @@ if (process.env.CODEX_PET_FRAMES) {
       tray.setContextMenu(Menu.buildFromTemplate([
         { label: '打开管理窗口', click: showPanel },
         { label: '打开 Codex', click: () => { void openCodex().catch(error => { showPanel(); phase = error.message; }); } },
-        { label: '查询 Codex 重置', click: () => { void request('/dsh-pet-7340/reset','POST').catch(()=>{}); } },
         { label: visible ? '隐藏桌宠' : '显示桌宠', click: () => setVisible(!visible) },
         { type: 'separator' },
-        { label: '看额度', click: () => { showPanel(); void request('/dsh-pet-7340/balance', 'POST').catch(() => {}); } },
+        { label: '查询账号额度（可选）', click: () => { showPanel(); void request('/dsh-pet-7340/balance', 'POST').catch(() => {}); } },
         { label: '碎碎念 · 来一句', click: () => { setVisible(true); void request('/dsh-pet-7340/whisper?pet=main', 'POST').catch(() => {}); } },
         { type: 'separator' },
         { label: '编辑语录', click: () => shell.openPath(path.join(data, 'quotes.json')) },
@@ -242,7 +241,6 @@ if (process.env.CODEX_PET_FRAMES) {
           await shell.openExternal(`https://www.bilibili.com/video/${bv}/`);
           return { ok: true };
         }
-        if (action === 'reset') return await request('/dsh-pet-7340/reset','POST');
         if (action === 'chat') return await request('/dsh-pet-7340/chat?pet=main','POST',{text:String(message ?? '').slice(0,2000)});
         if (action === 'toggle') { setVisible(!visible); return { ok: true }; }
         if (action === 'quota') return await request('/dsh-pet-7340/balance', 'POST');

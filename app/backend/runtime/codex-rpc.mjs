@@ -5,7 +5,7 @@ import {resolveCodexExecutable} from './codex-usage/usage.mjs';
 const appVersion=JSON.parse(readFileSync(new URL('../../package.json',import.meta.url),'utf8')).version;
 export async function connect() {
   const cli=resolveCodexExecutable(process.env.CODEX_PET_CODEX_PATH || process.env.DSH_PET_CODEX_PATH);
-  if(!cli) throw new Error('本鱼找不到 Codex，请先安装并登录。');
+  if(!cli) throw new Error('本鱼找不到 Codex，请先安装并配置（账号登录或 API / CC Switch 中转均可）。');
   // Follow this PC's existing Windows proxy preference for the child only.
   const env={...process.env};
   if(process.platform==='win32'&&!env.HTTPS_PROXY&&!env.https_proxy){try{

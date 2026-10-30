@@ -2,7 +2,7 @@ const el = id => document.getElementById(id);
 function renderQuota(balance) {
   const box = el('quota'); box.replaceChildren();
   el('plan').textContent = balance?.data?.planLabel || '';
-  if (!balance?.ok) { const p=document.createElement('p'); p.className='muted'; p.textContent=balance?.message || '额度暂不可用，可点击刷新重试'; box.append(p); return; }
+  if (!balance?.ok) { const p=document.createElement('p'); p.className='muted'; p.textContent=balance?.message || '默认不查询账号额度；API / 中转无需这项，也不影响聊天。'; box.append(p); return; }
   for (const w of balance.data.windows || []) {
     const row=document.createElement('div'); row.className='quota-row';
     const line=document.createElement('div'); line.className='quota-label';
@@ -32,7 +32,6 @@ document.querySelectorAll('[data-action]').forEach(button=>button.addEventListen
     const action=button.dataset.action;
     if(action==='quota') el('notice').textContent='正在查询最新额度…';
     const result=await window.pet.action(action);
-    if(action==='reset') el('reset-result').textContent=result.text;
     if(result?.ok===false) throw new Error(result.message || result.text || '操作未成功，请稍后重试');
     el('notice').textContent=action==='settings'?'修改配置后，请退出软件并重新打开。':action==='quotes'?'保存语录文件后，下次说话即生效。':action==='quota'?'已刷新额度':action==='quote'?'听听她说什么～':'';
     const latest=await refresh();

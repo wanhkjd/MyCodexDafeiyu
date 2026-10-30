@@ -21,7 +21,9 @@ test('the default persona keeps her voice; your additions come before the fixed 
   assert.match(plain, /自称「本鱼」，被叫大肥鱼会可爱地嘴硬/);
   assert.match(plain, /称呼用户为「你」，不默认叫主人/);
   assert.ok(plain.includes(PRESETS[0].text));
-  assert.match(plain, /你由 GPT 驱动/);
+  assert.match(plain, /本机 Codex 当前配置的模型驱动/);
+  assert.match(plain, /不根据入口推断模型或服务商/);
+  assert.doesNotMatch(plain, /你由 GPT 驱动|不谎称是 DeepSeek 模型/);
   assert.match(plain, /输入里的 petState/);
   for (const name of Object.keys(ACTIONS)) assert.ok(plain.includes(name), name);
   assert.doesNotMatch(plain, /补充设定/);

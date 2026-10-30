@@ -1277,7 +1277,6 @@ class PetSprite {
       { label: '和本鱼对话', action: 'chat' },
       { label: 'DDL 提醒 · 便签', action: 'reminders' },
       { label: '控制大肥鱼 · WASD / 扔白饭', action: 'control' },
-      { label: '查询 Codex 重置', action: 'reset' },
       { label: '打开 Codex', action: 'open-codex' },
       { label: '回到初始位置', action: 'home' },
       // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置 + 宿主重载生效。
@@ -1324,7 +1323,6 @@ class PetSprite {
     if (leaf.action === 'reminders') { window.showPetReminders?.(this); return; }
     if (!leaf || typeof leaf !== 'object') return;
     if (leaf.action === 'open-codex') { S.postAction(BASE + '/ack').then(()=>pollStateNow()).catch(()=>{}); window.petBridge?.openCodex(); return; }
-    if (leaf.action === 'reset') { S.postAction(BASE + '/reset').then(() => pollStateNow()); return; }
     if (leaf.action === 'open-site') {
       if (window.petBridge) window.petBridge.openDshSite(ORIGIN); // 系统默认浏览器打开（等效 Ctrl+点击链接）
       return;

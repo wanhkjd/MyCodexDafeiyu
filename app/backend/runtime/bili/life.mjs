@@ -194,7 +194,8 @@ export function lifeService({ dataDir, client, llm, grab, mood = () => null, say
     if (readPlan().day !== dayKey(startedAt)) replan(s, startedAt);
     try {
       step('醒来了，先看看自己的状态…');
-      if (llm.status().kind !== 'third-party') throw new Error('先在「聊天用的大模型」里启用第三方 API，她才能看懂视频');
+      const model = llm.status();
+      if (model.ready === false || !['codex', 'third-party'].includes(model.kind)) throw new Error(model.message || '当前大模型不可用，请检查「聊天用的大模型」配置');
       const api = client.state();
       if (api.banned) throw new Error(`B 站限流中，约 ${api.bannedMinutes} 分钟后恢复，这次没看成`);
       const who = persona(), identity = who.identity;
@@ -356,7 +357,7 @@ export function lifeService({ dataDir, client, llm, grab, mood = () => null, say
     return {
       ok: true, enabled: s.enabled, settings: s, account: api.account,
       api: { banned: api.banned, bannedMinutes: api.bannedMinutes, reads: api.reads },
-      llm: { ready: llmStatus.kind === 'third-party', name: llmStatus.name || '', model: llmStatus.model || '' }, vision,
+      llm: { kind: llmStatus.kind, ready: llmStatus.ready !== false && ['codex', 'third-party'].includes(llmStatus.kind), name: llmStatus.name || '', model: llmStatus.model || '', message: llmStatus.message || '' }, vision,
       running, progress,
       plan: plan.day === today ? plan.wakes.map(w => ({ at: w.at, time: clock(w.at), window: w.window, state: w.state, skip: w.state === 'skipped' })) : [],
       today: plan.day === today ? plan.stats : freshStats(),
