@@ -1,0 +1,8 @@
+{
+  "name": "codex-dafeiyu",
+  "productName": "Codex-dafeiyu",
+  "version": "1.4.5",
+  "description": "Codex 桌面陪伴与额度管理",
+  "main": "main.cjs",
+  "private": true
+}

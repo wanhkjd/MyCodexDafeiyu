@@ -1,0 +1,8 @@
+{
+  "name": "codex-dafeiyu-backend",
+  "version": "1.4.5",
+  "private": true,
+  "type": "module",
+  "description": "基于 dsh-pet 的预构建独立后台；当前不包含原始 TypeScript 构建工程",
+  "license": "MIT"
+}

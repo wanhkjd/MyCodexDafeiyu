@@ -1,0 +1,80 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+function backendEnvironment(source = process.env) {
+  const env = { ...source, NODE_USE_ENV_PROXY: '1' };
+  delete env.ELECTRON_RUN_AS_NODE;
+  env.NO_PROXY = [env.NO_PROXY || env.no_proxy, 'localhost', '127.0.0.1', '[::1]'].filter(Boolean).join(',');
+  if (process.platform !== 'win32' || env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy) return env;
+  try {
+    const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
+    const read = name => execFileSync('reg.exe', ['query', key, '/v', name], {encoding:'utf8',windowsHide:true,timeout:1500});
+    if (!/REG_DWORD\s+0x1\b/.test(read('ProxyEnable'))) return env;
+    const raw = read('ProxyServer').match(/REG_SZ\s+([^\r\n]+)/)?.[1]?.trim();
+    const address = raw?.includes('=') ? raw.split(';').find(s=>s.startsWith('https='))?.slice(6) || raw.split(';').find(s=>s.startsWith('http='))?.slice(5) : raw;
+    if (address) {
+      const url = new URL(address.includes('://') ? address : 'http://' + address);
+      if (['http:', 'https:'].includes(url.protocol)) { env.HTTPS_PROXY=url.href; env.HTTP_PROXY=url.href; }
+    }
+  } catch { /* An unavailable system proxy does not prevent offline features. */ }
+  return env;
+}
+
+function prepareData(root, data) {
+  fs.mkdirSync(data, { recursive: true });
+  for (const relative of ['quotes.json', 'mood-quotes.json', 'dsh-pet/main-config.jsonc']) {
+    const target = path.join(data, relative);
+    if (!fs.existsSync(target)) {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(root, 'defaults', relative), target);
+    }
+  }
+  upgradeQuotes(root, data);
+}
+
+function upgradeQuotes(root, data) {
+  const manifest=path.join(root,'defaults','quotes-upgrade.json');
+  if(!fs.existsSync(manifest))return;
+  const upgrade=JSON.parse(fs.readFileSync(manifest,'utf8'));
+  const marker=path.join(data,'quotes-upgrade-state.json'),file=path.join(data,'quotes.json');
+  try { if(JSON.parse(fs.readFileSync(marker,'utf8')).revision===upgrade.revision)return; } catch {}
+  let raw,quotes;
+  try { raw=fs.readFileSync(file,'utf8');quotes=JSON.parse(raw.replace(/^\uFEFF/,'')); } catch { return; }
+  if(!Array.isArray(quotes)||!quotes.every(q=>typeof q==='string'))return;
+  if(quotes.some(q=>Object.hasOwn(upgrade.replacements,q))){
+    const next=quotes.map(q=>Object.hasOwn(upgrade.replacements,q)?upgrade.replacements[q]:q);
+    for(const quote of upgrade.additions)if(!next.includes(quote))next.push(quote);
+    const backup=path.join(data,`quotes.before-${upgrade.revision}.json`);
+    if(!fs.existsSync(backup))fs.writeFileSync(backup,raw,{flag:'wx'});
+    fs.writeFileSync(file+'.tmp',JSON.stringify(next,null,2)+'\n');fs.renameSync(file+'.tmp',file);
+  }
+  fs.writeFileSync(marker+'.tmp',JSON.stringify({revision:upgrade.revision})+'\n');fs.renameSync(marker+'.tmp',marker);
+}
+
+function checkPackage(root, { source = false } = {}) {
+  const required = ['node.exe','backend-entry.mjs','DesktopBridge.exe','backend/lib/standalone.js',
+    'backend/assets/config.jsonc','backend/runtime/electron-helper/main.js','assets/icon.ico',
+    'defaults/quotes.json','defaults/dsh-pet/main-config.jsonc',
+    'reminders-panel.js','backend/runtime/reminders.mjs','backend/runtime/quota-cache.mjs',
+    'llm-panel.js','backend/runtime/third-party-llm.mjs',
+    'mood-panel.js','backend/runtime/mood.mjs','defaults/mood-quotes.json','backend/runtime/persona.mjs',
+    'bili-panel.js','bili-login.cjs','node_modules/qrcode/lib/core/qrcode.js','node_modules/dijkstrajs/dijkstra.js',
+    'backend/runtime/bili/api.mjs','backend/runtime/bili/feed.mjs','backend/runtime/bili/watch.mjs','backend/runtime/bili/frames.mjs',
+    'backend/runtime/bili/prompts.mjs','backend/runtime/bili/life.mjs','backend/runtime/bili/grabber.cjs','backend/runtime/bili/grabber.js',
+    'backend/runtime/electron-helper/visibility-recovery.js','backend/runtime/electron-helper/features.js',
+    'backend/runtime/electron-helper/game.html','backend/runtime/electron-helper/game.js',
+    'backend/runtime/electron-helper/game-preload.js','backend/runtime/electron-helper/game-physics.js',
+    'backend/assets/pic/rice-bowl.png','backend/assets/webm/白饭落地.webm',
+    'backend/assets/webm/控制-奔跑.webm','backend/assets/webm/控制-摔倒.webm',
+    'backend/assets/webm/控制-奔跑摔倒.webm'];
+  const missing = required.filter(file => !(source && (file === 'node.exe' || file.startsWith('node_modules/'))) && !fs.existsSync(path.join(root, file)));
+  if (missing.length) throw new Error('程序文件不完整，请完整解压发布包后重试。缺少：' + missing.join('、'));
+}
+
+function readBackendAddress(line) {
+  const match = line.match(/服务已监听 (http:\/\/127\.0\.0\.1:(\d+))\//);
+  return match && Number(match[2]) > 0 && Number(match[2]) <= 65535 ? match[1] : null;
+}
+
+module.exports = { prepareData, checkPackage, readBackendAddress, backendEnvironment };

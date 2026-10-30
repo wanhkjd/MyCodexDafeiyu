@@ -1,0 +1,17 @@
+* text=auto eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=crlf
+*.exe binary
+*.png binary
+*.ico binary
+*.webm binary
+*.ttf binary
+
+# Preserve upstream license text verbatim, including its whitespace.
+licenses/** -whitespace
