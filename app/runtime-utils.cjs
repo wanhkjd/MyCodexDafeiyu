@@ -55,6 +55,9 @@ function upgradeQuotes(root, data) {
 function checkPackage(root, { source = false } = {}) {
   const required = ['node.exe','backend-entry.mjs','DesktopBridge.exe','backend/lib/standalone.js',
     'backend/assets/config.jsonc','backend/runtime/electron-helper/main.js','assets/icon.ico',
+    'pet-size-panel.js','backend/runtime/pet-size.mjs','character-panel.js','backend/runtime/characters.mjs','backend/runtime/electron-helper/flight-motion.js',
+    'backend/assets/characters/bailong/ASSETS.md','backend/assets/characters/bailong/outputs/白龙桌宠素材/素材清单.json',
+    'backend/assets/characters/bailong/outputs/白龙桌宠素材/透明WebM/idle.webm',
     'defaults/quotes.json','defaults/dsh-pet/main-config.jsonc',
     'reminders-panel.js','backend/runtime/reminders.mjs','backend/runtime/quota-cache.mjs',
     'llm-panel.js','backend/runtime/third-party-llm.mjs','backend/runtime/model-router.mjs','backend/runtime/codex-chat.mjs',
@@ -65,6 +68,8 @@ function checkPackage(root, { source = false } = {}) {
     'backend/runtime/electron-helper/visibility-recovery.js','backend/runtime/electron-helper/features.js',
     'backend/runtime/electron-helper/game.html','backend/runtime/electron-helper/game.js',
     'backend/runtime/electron-helper/game-preload.js','backend/runtime/electron-helper/game-physics.js',
+    'backend/runtime/electron-helper/rice-feeding.js','backend/runtime/electron-helper/rice-preload.js',
+    'backend/runtime/electron-helper/rice.html','backend/runtime/electron-helper/rice.js',
     'backend/assets/pic/rice-bowl.png','backend/assets/webm/白饭落地.webm',
     'backend/assets/webm/控制-奔跑.webm','backend/assets/webm/控制-摔倒.webm',
     'backend/assets/webm/控制-奔跑摔倒.webm'];

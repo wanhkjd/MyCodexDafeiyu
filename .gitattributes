@@ -15,3 +15,6 @@
 
 # Preserve upstream license text verbatim, including its whitespace.
 licenses/** -whitespace
+
+# Keep the bundled upstream notice byte-for-byte for its pinned checksum (including CRLF).
+app/backend/assets/characters/bailong/ASSETS.md -text

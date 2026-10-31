@@ -23,11 +23,11 @@
  *   - 系统通知不是宠物行为（浏览器半侧 notify.ts 负责），桌面端不重复实现。
  */
 'use strict';
+let lifecyclePhase = 'resume';
 
 // ---------- 配置（大声报错；失败 5s 重试） ----------
 function showError(message) {
   console.error('[dsh-pet] ' + message);
-  window.__dshPetDebug.configOk = false;
   errorEl.textContent = 'dsh-pet 配置错误：' + message;
   errorEl.classList.add('visible');
 }
@@ -79,9 +79,7 @@ async function boot() {
     }
     for (const s of sprites) s.dispose();
     sprites = [new PetSprite(pet)];
-    window.__dshPetDebug.configOk = true;
-    window.__dshPetDebug.spriteCount = sprites.length;
-    for (const s of sprites) s.playIdle();
+    for (const s of sprites) { s.suspended = lifecyclePhase === 'suspend'; s.playIdle(); }
     startLoops();
   } catch (e) {
     showError('配置加载失败：' + (e && e.message ? String(e.message) : String(e)));
@@ -130,7 +128,7 @@ if (window.petBridge && window.petBridge.onDisplays) {
 // 那正好落在拖拽/飞行过程中，不设防就会看到宠物瞬间跳回上一个落点。
 window.addEventListener('resize', () => {
   for (const s of sprites) {
-    if (s.dragState.active || s.throwRef !== null || s.moveRef !== null) continue;
+    if (s.dragState.active || s.throwRef !== null || s.moveRef !== null || s.flightRef !== null || s.pendingFlight || s.flightPlan) continue;
     s.position();
   }
 });
@@ -138,7 +136,9 @@ window.addEventListener('resize', () => {
 injectAssets();
 void boot();
 window.petBridge?.onLifecycle?.(phase=>{
+  lifecyclePhase = phase;
   for(const s of sprites) {
+    s.suspended = phase !== 'resume';
     s.closeMenu();
     if(s.chatClose){s.chatClose();s.chatClose=null;s.chatOpen=false;}
     s.dragState.active=false;s.dragState.dragging=false;s.justDragged=false;
@@ -150,10 +150,14 @@ window.petBridge?.onLifecycle?.(phase=>{
     s.customPos={rx:(s.pos.x+s.halfW)/VIEW.w,ry:(s.pos.y+s.halfH)/VIEW.h};
     s._interactive=null;s._inputBusy=null;s._inputRegions=null;
     s.syncInputBusy();s.setInteractive(false);
+    if(phase==='suspend') { s.videoA.pause();s.videoB.pause(); }
     if(phase==='resume') {
+      s.clampFlightPosition();
       s.sendBounds(s.pos.x,s.pos.y);
       const video=s.front===0?s.videoA:s.videoB;
-      if(video && video.src){if(video.error)video.load();video.play().catch(()=>s.playIdle());}
+      if(s.isFlightAnimation(s.anim)) s.playOnce(s.character.landing);
+      else if(video && video.src){if(video.error)video.load();video.play().catch(()=>s.playIdle());}
+      else s.playIdle();
     }
   }
   if(phase==='resume')pollStateNow();

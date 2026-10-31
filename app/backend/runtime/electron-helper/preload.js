@@ -23,6 +23,20 @@ contextBridge.exposeInMainWorld('petBridge', {
   onLifecycle(cb) { ipcRenderer.on('pet:lifecycle', (_e,phase)=>cb(phase)); },
   startControl(info) { ipcRenderer.send('pet:start-control',info); },
   openCodex() { ipcRenderer.send('pet:open-codex'); },
+  setRiceTarget(data) { ipcRenderer.send('pet:rice-target', data); },
+  spawnRice() { ipcRenderer.send('pet:rice-spawn'); },
+  cancelRice() { ipcRenderer.send('pet:rice-cancel'); },
+  riceResult(result) { ipcRenderer.send('pet:rice-result', result); },
+  onRiceState(cb) {
+    const handler = (_e, state) => cb(state);
+    ipcRenderer.on('pet:rice-state', handler);
+    return () => ipcRenderer.removeListener('pet:rice-state', handler);
+  },
+  onRiceDrop(cb) {
+    const handler = (_e, request) => cb(request);
+    ipcRenderer.on('pet:rice-drop', handler);
+    return () => ipcRenderer.removeListener('pet:rice-drop', handler);
+  },
   setBounds(x, y, width, height, boxX, boxY, size, bottomPad, vx, vy) {
     ipcRenderer.send('pet:set-bounds', { x, y, width, height, boxX, boxY, size, bottomPad, vx, vy });
   },

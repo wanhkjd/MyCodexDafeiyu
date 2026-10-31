@@ -185,7 +185,7 @@ const planMove = (o) => {
 	};
 };
 const anchorPixel = (o) => {
-	const height = o.size * 9 / 16;
+	const height = o.height ?? o.size * 9 / 16;
 	const a = o.area ?? {
 		x: 0,
 		y: 0,
@@ -564,7 +564,8 @@ function flattenConfigPets(merged) {
 			workStatusTexts: conf.workStatusTexts,
 			whisperModel: conf.whisperModel,
 			chatModel: conf.chatModel,
-			assetRoot: entry,
+			assetRoot: conf.character?.assetRoot || entry,
+			character: conf.character || p.character,
 			extra: entry !== "main"
 		});
 	}
@@ -672,6 +673,7 @@ const leaf = (anim) => ({
 	anim
 });
 function buildMenuTree(animations) {
+	const leaf = anim => ({ label: animations.labels?.[anim] || anim, anim });
 	const groups = [];
 	const pools = [
 		["待机", animations.idle],
@@ -686,7 +688,7 @@ function buildMenuTree(animations) {
 	});
 	const cats = (animations.categories ?? []).filter((c) => c.actions.length > 0);
 	for (const c of cats) groups.push({
-		label: c.id,
+		label: c.label || c.id,
 		children: c.actions.map(leaf)
 	});
 	const events = animations.events ?? {};
@@ -1063,7 +1065,7 @@ const squashScale = (u, squash = SQ_SQUASH) => {
 	return Math.min(1.12, squash + (1 - squash) * Math.max(f, 0));
 };
 const throwBounds = (o) => {
-	const h = o.size * 9 / 16;
+	const h = o.height ?? o.size * 9 / 16;
 	return {
 		minX: -o.sideAllow,
 		minY: 0,
@@ -1071,8 +1073,8 @@ const throwBounds = (o) => {
 		maxY: o.H - h
 	};
 };
-const throwBoundsIn = (area, size, sideAllow) => {
-	const h = size * 9 / 16;
+const throwBoundsIn = (area, size, sideAllow, height) => {
+	const h = height ?? size * 9 / 16;
 	return {
 		minX: area.x - sideAllow,
 		minY: area.y,
@@ -1081,15 +1083,16 @@ const throwBoundsIn = (area, size, sideAllow) => {
 	};
 };
 const throwSpace = (o) => ({
-	bounds: o.areas.map((a) => throwBoundsIn(a, o.size, o.sideAllow)),
+	bounds: o.areas.map((a) => throwBoundsIn(a, o.size, o.sideAllow, o.height)),
 	areas: o.areas,
 	panels: o.panels && o.panels.length === o.areas.length ? o.panels : o.areas,
 	size: o.size,
+	height: o.height ?? o.size * 9 / 16,
 	sideAllow: o.sideAllow
 });
 const screenOfBox = (space, x, y) => {
 	const cx = x + space.size / 2;
-	const cy = y + space.size * 9 / 16 / 2;
+	const cy = y + (space.height ?? space.size * 9 / 16) / 2;
 	const hit = indexAtPoint(space.areas, cx, cy);
 	return hit >= 0 ? hit : nearestIndex(space.areas, cx, cy);
 };
@@ -1208,7 +1211,7 @@ const throwStepRegion = (s, dtRaw, space, physics = DEFAULT_PHYSICS, lockScreen 
 		bounced: false,
 		atRest: false
 	};
-	const h = space.size * 9 / 16;
+	const h = (space.height ?? space.size * 9 / 16);
 	let bounced = false;
 	const locked = Number.isInteger(lockScreen) && lockScreen >= 0 && lockScreen < space.areas.length;
 	/** 该用哪块屏的 AABB / 工作区 / 面板：锁定时恒为锁定屏，否则取身体中心所在屏 */
@@ -1267,7 +1270,8 @@ const throwStepRegion = (s, dtRaw, space, physics = DEFAULT_PHYSICS, lockScreen 
 };
 const PET_BOUNCE_E = .995;
 const bodyPixelBox = (o) => {
-	const h = o.size * 9 / 16;
+	if (o.hitRect) return { left: o.x + o.hitRect.x, top: o.y + o.hitRect.y, right: o.x + o.hitRect.x + o.hitRect.w, bottom: o.y + o.hitRect.y + o.hitRect.h };
+	const h = o.height ?? o.size * 9 / 16;
 	return {
 		left: o.x + HIT_BOX.x0 / 640 * o.size,
 		top: o.y + o.bottomPad + HIT_BOX.y0 / 360 * h,
@@ -1277,8 +1281,8 @@ const bodyPixelBox = (o) => {
 };
 const rectsOverlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 const collidePet = (fly, hit) => {
-	const hf = fly.size * 9 / 16 / 2;
-	const hh = hit.size * 9 / 16 / 2;
+	const hf = (fly.height ?? fly.size * 9 / 16) / 2;
+	const hh = (hit.height ?? hit.size * 9 / 16) / 2;
 	const cx = hit.x + hit.size / 2 - (fly.x + fly.size / 2);
 	const cy = hit.y + hh - (fly.y + hf);
 	const dist = Math.hypot(cx, cy);

@@ -14,6 +14,8 @@ GPT-Niang 的 MIT 范围限于其源码与文档，不包括其角色和图片�
 
 dsh-pet 的上游 README 将代码与素材分开说明：代码为 MIT；动画、动作提示词和源视频限非商业开源使用，并要求二次开发的介绍、展示、分发保留原作者 GitHub 地址。这里的代码 MIT 不扩大到这些素材，详情见[上游许可说明](https://github.com/PC2005-cloud/dsh-pet#许可)。
 
-Windows 发布包保留 Electron 的 `LICENSE`、`LICENSES.chromium.html` 与 Node.js 许可证；依赖目录保留对应包的许可证。当前目录不包含上游完整构建工程，来源及缺失内容见 [PROVENANCE](docs/PROVENANCE.md)，安装范围以根目录 README 为准。
+本工作副本另收录 jingh12312-rgb/bailong-desktop-pet v0.5.1 的 35 段透明白龙动画及经过校验、规范化的动作清单，用于个人使用。未收录其 EXE、Python/Qt 程序、FFmpeg 或其他运行库。原始素材声明保存在 `app/backend/assets/characters/bailong/ASSETS.md`；该声明未额外授予美术素材商用或再分发许可，不能将本项目代码 MIT 扩展为白龙素材授权。本次本地收录不代表公开发布授权。
+
+Windows 发布包保留 Electron 的 `LICENSE`、`LICENSES.chromium.html` 与 Node.js 许可证；依赖目录保留对应包的许可证。当前目录不包含上游完整构建工程；后台原始 TypeScript 与 DesktopBridge 的 C# 源码未收录，保留现有运行文件及其来源声明。
 
 v1.4.0 的白饭碗与碎碗散饭素材，来自用户提供并确认处理的 AI 视频。沿用 dsh-pet 角色形象与参考素材的来源说明和素材使用边界；此处不扩张原角色素材的许可范围。

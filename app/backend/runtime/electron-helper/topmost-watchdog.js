@@ -24,7 +24,7 @@
  * HWNDMessageHandler::SetAlwaysOnTop，全链无早退、无状态比较）：不移动、不缩放、不重绘、不抢焦点。
  * 反过来，`moveTop()`（HWND_TOP）对已沉底的窗口**无效**（实测仍在普通带里），不能拿来当兜底。
  *
- * 本文件只放纯判定：不 require('electron')，可被 node:test 直接加载单测（同 pointer-target.js）。
+ * 本文件只放纯判定，不依赖 Electron 窗口对象。
  */
 
 'use strict';
@@ -38,16 +38,15 @@ const TOPMOST_REASSERT_MS = 5000;
 /**
  * 这一拍要不要重新置顶。
  *
- * 只在「窗口还在、可见、没被冒烟自检挂起」且「距上次重钉已够久」时返回 true：
- * 隐藏期间钉了没意义（show 之后本来就会进带），冒烟自检期间钉了会干扰断言；
- * 而这些条件随时会变（渲染端首帧、自检结束），所以判定每秒跑一次、这一拍被拦就下一拍补上。
+ * 只在窗口存在且可见、距上次重新置顶已够久时返回 true。
+ * 隐藏期间不重新置顶；判定每秒运行一次。
  *
- * @param {{nowMs:number,lastAssertMs:number,destroyed:boolean,visible:boolean,paused:boolean}} state
+ * @param {{nowMs:number,lastAssertMs:number,destroyed:boolean,visible:boolean}} state
  * @returns {boolean}
  */
 function shouldReassertTopmost(state) {
-  const { nowMs, lastAssertMs, destroyed, visible, paused } = state || {};
-  if (destroyed || !visible || paused) return false;
+  const { nowMs, lastAssertMs, destroyed, visible } = state || {};
+  if (destroyed || !visible) return false;
   const elapsed = nowMs - lastAssertMs;
   // 只有「时间正常流逝且还没到点」才不钉；时钟被回拨 / 时间戳异常一律按到点处理（重钉无副作用）
   return !(elapsed >= 0 && elapsed < TOPMOST_REASSERT_MS);

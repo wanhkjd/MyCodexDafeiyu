@@ -59,6 +59,7 @@ const { HOST_POLL_MS, hostIsGone, isBrokenPipeError, parseHostPid } = require('.
 // 全局 DPI 线性化的纯判定与换算（含平台例外：macOS 的 DIP 已是「点」，无需补偿；见该文件头）
 const { shouldLinearize, resolveForcedScale, resolvePetScale } = require('./dpi-linearization.js');
 const { buildDeskGeometry } = require('./desktop-geometry.js');
+const { createRiceFeeding } = require('./rice-feeding.js');
 
 // 允许无用户手势直接播放（余额动画等）
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -193,7 +194,7 @@ function parseProbeOutput(text) {
 /** 拉起探测子进程读主屏 scaleFactor（同一个 electron + 同一个 main.js，走 DPI_PROBE 分支） */
 function probePrimaryScale() {
   const opts = {
-    env: { ...process.env, DSH_PET_DPI_PROBE: '1', DSH_PET_BRIDGE: '0', DSH_PET_SMOKE: '0' },
+    env: { ...process.env, DSH_PET_DPI_PROBE: '1', DSH_PET_BRIDGE: '0' },
     timeout: 20000,
     encoding: 'utf8',
     windowsHide: true,
@@ -282,6 +283,9 @@ if (BRIDGE) {
 
 /** 窗口表：petId -> BrowserWindow */
 const windows = new Map();
+const riceFeeding = createRiceFeeding({ BrowserWindow, ipcMain, screen,
+  isOwner: win => [...windows.values()].includes(win), scale: () => petScale() });
+app.on('before-quit', () => riceFeeding.cancelAll());
 
 /** win.id -> 上一次**请求**的内容区矩形（"x,y,w,h"）：pet:set-bounds 的去重基准，见那里的注释 */
 const lastRequestedBounds = new Map();
@@ -307,6 +311,7 @@ function broadcastPetStates() {
 
 /** 记录/更新一只宠物的状态并广播 */
 function updatePetState(petId, partial) {
+  if (nonCollidingPets.has(petId)) return;
   const prev = petStates.get(petId) || { x: 0, y: 0, vx: 0, vy: 0, size: 0, bottomPad: 0 };
   petStates.set(petId, Object.assign({}, prev, partial));
   broadcastPetStates();
@@ -314,7 +319,7 @@ function updatePetState(petId, partial) {
 
 /**
  * 每窗口当前穿透状态（true = 整窗点击穿透）。所有 setIgnoreMouseEvents 只经本文件
- * （创建时初始化 + pet:set-interactive 翻转 + 光标兜底轮询），这里镜像真实状态，供冒烟断言/排查使用
+ * （创建时初始化 + pet:set-interactive 翻转 + 光标兜底轮询），这里镜像真实状态，供运行时穿透判断使用
  * （Electron 无 isIgnoringMouseEvents 取值 API）。
  */
 const windowIgnore = new Map();
@@ -327,8 +332,6 @@ function setWindowIgnore(win, ignore) {
 
 /** 兜底通道的光标轮询间隔（ms，与 issue #55 报告者实测值一致） */
 const POINTER_POLL_MS = 60;
-/** 冒烟期间暂停兜底轮询：它按**真实光标**翻转 windowIgnore，会干扰冒烟对渲染端通道的断言 */
-let pointerFallbackPaused = false;
 
 /**
  * 每窗口「渲染端正拿着鼠标输入」标记（win.id → true/false），由渲染端经 `pet:input-busy` 上报。
@@ -379,7 +382,7 @@ function recoverHealth(win) {
     console.warn('[pet-recovery] renderer probe failed; one reload');
     resetInput(win);win.webContents.reload();
   };
-  win.webContents.executeJavaScript('Boolean(window.__dshPetDebug && typeof pollStateNow === "function")')
+  win.webContents.executeJavaScript('typeof pollStateNow === "function"')
     .then(ok=>{clearTimeout(timer);if(!ok)failed();}).catch(failed);
 }
 
@@ -400,6 +403,7 @@ function petsFromEnv() {
         id: String(p?.id ?? `pet-${i}`),
         size: Number(p?.size) > 0 ? Number(p.size) : 462,
         index: i,
+        geometry: p?.character?.geometry,
       }));
     }
   } catch {
@@ -408,11 +412,14 @@ function petsFromEnv() {
   return [{ id: 'main', size: 462, index: 0 }];
 }
 
+const nonCollidingPets = new Set(petsFromEnv().filter(p => p.geometry).map(p => p.id));
+
 /** 窗口初始尺寸 = 宠物包围盒 + 四周外扩余量（4×0.5×size，与 renderer 的 WINDOW_MARGIN_RATIO 一致；
  *  renderer 首帧 set-bounds 会按真实配置精确覆盖，这里只是避免启动瞬间的尺寸跳变）。 */
-function petWindowSize(size) {
-  const height = (size * 9) / 16;
-  const bottomPad = (size * (9 / 16) * (360 - 330)) / 360;
+function petWindowSize(size, geometry) {
+  const g = geometry || { width: 640, height: 360, feetY: 330 };
+  const height = size * g.height / g.width;
+  const bottomPad = height * (g.height - g.feetY) / g.height;
   const m = Math.round(size * 0.5);
   return { width: Math.round(size) + m * 2, height: Math.round(height + bottomPad) + m * 2 };
 }
@@ -440,7 +447,7 @@ function createPetWindows(replacement) {
     if(!replacement && windows.has(pet.id) && !windows.get(pet.id).isDestroyed())continue;
     const restored=replacement?.position;
     // 初始窗口尺寸也要吃缩放补偿，否则启动瞬间会有一次可见的尺寸跳变
-    const { width, height } = petWindowSize(pet.size * scale);
+    const { width, height } = petWindowSize(pet.size * scale, pet.geometry);
     const win = new BrowserWindow({
       icon: process.env.DSH_PET_ICON || undefined,
       width,
@@ -472,6 +479,7 @@ function createPetWindows(replacement) {
         spellcheck: false,
       },
     });
+    riceFeeding.attach(win);
     win.setAlwaysOnTop(true, process.env.CODEX_PET_HELPER ? 'floating' : 'screen-saver');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     // 窗口被其他窗口（另一只宠物）完全遮挡时，Chromium 默认会暂停本窗口渲染，
@@ -493,6 +501,7 @@ function createPetWindows(replacement) {
     // webPreferences.zoomFactor 对 show:false 的窗口不生效（实测），须在加载完成后设置。
     win.webContents.on('did-finish-load', () => {
       win.webContents.setZoomFactor(scale);
+      win.webContents.send('pet:lifecycle', win.isVisible() ? 'resume' : 'suspend');
     });
     // 默认整窗点击穿透（renderer 在光标进/出身体命中区时经 IPC 翻转可交互）；
     // forward:true 保证穿透期间 mousemove 仍转发进渲染端做命中判定。
@@ -515,7 +524,7 @@ function createPetWindows(replacement) {
     // 唯一不可自行决定的事：**渲染端正拿着鼠标输入时不得翻回穿透**（见 inputBusy）。
     // 本进程无从判断这件事——光看光标位置与窗口位移分不清"拖拽跟手"和"漫游/抛掷"，所以由渲染端上报。
     const pointerTimer = setInterval(() => {
-      if (pointerFallbackPaused || win.isDestroyed()) return;
+      if (win.isDestroyed()) return;
       const b = win.getBounds();
       if (b.width < 8 || b.height < 8) return; // 尺寸还没落定（renderer 首帧上报前）
       const ignoring = windowIgnore.get(win.id) !== false;
@@ -535,14 +544,12 @@ function createPetWindows(replacement) {
     // 不移动、不重绘、不抢焦点（判定的纯逻辑与全部依据见 topmost-watchdog.js）。
     let lastTopmostAssertMs = Date.now();
     const topmostTimer = setInterval(() => {
-      if (process.env.CODEX_PET_HELPER) return; // Never reassert over a fullscreen game.
       const nowMs = Date.now();
       const due = shouldReassertTopmost({
         nowMs,
         lastAssertMs: lastTopmostAssertMs,
         destroyed: win.isDestroyed(),
         visible: win.isVisible(),
-        paused: pointerFallbackPaused,
       });
       if (!due) return;
       lastTopmostAssertMs = nowMs;
@@ -705,9 +712,8 @@ app.whenReady().then(() => {
   if (process.env.CODEX_PET_CONTROL) {
     const applyVisibility = () => {
       try {
-        let fullscreen = false;
-        try { fullscreen = JSON.parse(readFileSync(path.join(path.dirname(process.env.CODEX_PET_CONTROL), 'fullscreen.json'), 'utf8')).fullscreen === true; } catch {}
-        const visible = !fullscreen && JSON.parse(readFileSync(process.env.CODEX_PET_CONTROL, 'utf8')).visible !== false;
+        // Visibility is manual only; fullscreen apps never hide or pause the pet.
+        const visible = JSON.parse(readFileSync(process.env.CODEX_PET_CONTROL, 'utf8')).visible !== false;
         for (const win of windows.values()) {
           if (win.isDestroyed()) continue;
           if (transitionWindow(win, visible && !gameWindow, {
@@ -718,7 +724,6 @@ app.whenReady().then(() => {
           })) console.log('[pet-recovery] visibility '+(visible?'resume':'suspend'));
         }
         if (!visible && gameWindow) stopGame();
-        if (process.env.CODEX_PET_TEST_CDP) writeFileSync(path.join(path.dirname(process.env.CODEX_PET_CONTROL), 'visibility-state.json'), JSON.stringify({visible:[...windows.values()].some(w=>!w.isDestroyed()&&w.isVisible())}));
       } catch {}
     };
     setInterval(applyVisibility, 500).unref();
@@ -797,6 +802,7 @@ app.whenReady().then(() => {
     if(typeof info.assetBase!=='string' || !info.assetBase.startsWith('dsh-pet-bridge://dsh-pet/dsh-pet-7340/thumb/'))return;
     const display=screen.getDisplayNearestPoint({x:Math.round(info.x+info.size/2),y:Math.round(info.y+info.size/3)});
     const area=display.workArea;
+    riceFeeding.cancelAll();
     gameInfo={...info,area};gameOwner=owner;
     const game=new BrowserWindow({x:area.x,y:area.y,width:area.width,height:area.height,frame:false,transparent:true,show:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,hasShadow:false,focusable:true,
       webPreferences:{preload:path.join(__dirname,'game-preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
@@ -844,6 +850,8 @@ app.whenReady().then(() => {
     const vx = Number(payload?.vx);
     const vy = Number(payload?.vy);
     if (!targetId || !Number.isFinite(vx) || !Number.isFinite(vy)) return;
+    const sourceId = [...windows.keys()].find(id => windows.get(id)?.webContents === event.sender);
+    if (!sourceId || nonCollidingPets.has(sourceId) || nonCollidingPets.has(targetId)) return;
     const targetWin = windows.get(targetId);
     if (targetWin && !targetWin.isDestroyed()) {
       targetWin.webContents.send('pet:hit', { vx, vy });
@@ -934,6 +942,7 @@ app.whenReady().then(() => {
   // 表现为「改了分辨率后可移动范围还是旧的」。这里重算并推给所有窗口，渲染端就地重挂。
   let displaysTimer = null;
   const pushDisplays = () => {
+    riceFeeding.cancelAll();
     const geo = deskGeometry();
     lastRequestedBounds.clear(); // 坐标系变了，去重缓存作废，下一帧必须真的重设一次
     for (const win of windows.values()) {
@@ -969,225 +978,6 @@ app.whenReady().then(() => {
   screen.on('display-added', scheduleDisplays);
   screen.on('display-removed', scheduleDisplays);
 
-  // 冒烟自检模式（默认关闭）：DSH_PET_SMOKE=1 时延时截图到 DSH_PET_SMOKE_OUT 后退出，
-  // 用于验证窗口/渲染/动画链路（如 CI 或本地验证）。
-  if (process.env.DSH_PET_SMOKE === '1') {
-    const smokeOut = process.env.DSH_PET_SMOKE_OUT || path.join(app.getPath('temp'), 'dsh-pet-smoke.png');
-    const afterMs = Number(process.env.DSH_PET_SMOKE_AFTER_MS || 9000);
-    const target = windows.values().next().value;
-    if (target) {
-      // 转发渲染端 console（定位动画/余额/错误问题）
-      target.webContents.on('console-message', (event) => {
-        console.log(`[renderer:${event.level}] ${event.message}`);
-      });
-    }
-    setTimeout(async () => {
-      try {
-        const first = windows.values().next().value;
-        if (first && !first.isDestroyed()) {
-          const dump = await first.webContents.executeJavaScript(`(async () => ({
-            hasBridge: typeof window.petBridge !== 'undefined',
-            hasSetInteractive: typeof window.petBridge?.setInteractive === 'function',
-            viewport: window.innerWidth + 'x' + window.innerHeight,
-            dpr: window.devicePixelRatio,
-            debug: window.__dshPetDebug || null,
-            sprites: document.querySelectorAll('.pet-sprite').length,
-            errorVisible: document.getElementById('pet-error').classList.contains('visible'),
-            errorText: document.getElementById('pet-error').textContent,
-            firstBubble: (document.querySelector('.pet-bubble.is-on') || { textContent: '' }).textContent.slice(0, 120),
-            hitCursor: (function () {
-              var hit = document.querySelector('.pet-hit');
-              return hit ? getComputedStyle(hit).cursor : '';
-            })(),
-            dragTransform: (function () {
-              var hit = document.querySelector('.pet-hit');
-              var stage = document.querySelector('.pet-stage');
-              if (!hit || !stage) return 'no-sprite';
-              var out = { idle: stage.style.transform };
-              hit.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 120, clientY: 120, screenX: 120, screenY: 120, pointerId: 91 }));
-              out.duringClick = stage.style.transform;
-              hit.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 120, clientY: 120, screenX: 120, screenY: 120, pointerId: 91 }));
-              out.afterClick = stage.style.transform;
-              hit.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 200, screenX: 200, screenY: 200, pointerId: 92 }));
-              hit.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 280, clientY: 240, screenX: 280, screenY: 240, pointerId: 92 }));
-              out.duringDrag = stage.style.transform;
-              window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 280, clientY: 240, screenX: 280, screenY: 240, pointerId: 92 }));
-              out.afterDrag = stage.style.transform;
-              return out;
-            })(),
-            releaseKeptPosition: await (async function () {
-              // 独立不变量：把宠物先拖到工作区内的固定安全点（600,300），松手后窗口位置必须原地不动。
-              // 拖拽抛掷物理（弹簧跟手+甩抛）下：指针长距跳跃后弹簧需要 ~0.3s 收敛，
-              // 松手前停留超过 RELEASE_STALE_MS(150ms) 判为「温柔放下」（估速 null，不抛掷）——
-              // 所以先等弹簧到位、再停留才松手，只测"释放瞬间是否位移"。
-              var d = window.__dshPetDebug;
-              var hit = document.querySelector('.pet-hit');
-              if (!d || !d.dragPos || !hit) return null;
-              var P = { x: d.dragPos.x, y: d.dragPos.y };
-              var T = { x: 600, y: 300 }; // 目标窗口左上角（1708×1020 工作区内，远离四边）
-              var upX = 1000 + (T.x - P.x);
-              var upY = 600 + (T.y - P.y);
-              var sleep = function (ms) {
-                return new Promise(function (r) {
-                  setTimeout(r, ms);
-                });
-              };
-              hit.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 1000, clientY: 600, screenX: 1000, screenY: 600, pointerId: 93 }));
-              hit.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: upX, clientY: upY, screenX: upX, screenY: upY, pointerId: 93 }));
-              await sleep(400); // 弹簧跟随收敛
-              var during = { x: d.dragPos.x, y: d.dragPos.y };
-              await sleep(200); // 轨迹过期 → 估速 null → 温柔放下（不抛掷）
-              window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: upX, clientY: upY, screenX: upX, screenY: upY, pointerId: 93 }));
-              await sleep(80); // 释放处理完成
-              var released = d.lastDragRelease ? { x: d.lastDragRelease.x, y: d.lastDragRelease.y } : null;
-              return {
-                during: during,
-                released: released,
-                kept: !!(released && Math.abs(released.x - during.x) <= 1 && Math.abs(released.y - during.y) <= 1),
-              };
-            })(),
-            interactiveFlip: (function () {
-              // 点击穿透命中判定：光标在命中区内→可交互；移出→穿透；拖拽中（pointer 已捕获）→强制可交互。
-              // hitRect 是 sprite 坐标，mousemove 用窗口坐标——测试事件需加上窗口外扩余量 winMargin。
-              var d = window.__dshPetDebug;
-              var hit = document.querySelector('.pet-hit');
-              if (!d || !d.hitRect || !d.winMargin || !hit) return null;
-              var r = d.hitRect;
-              var m = d.winMargin;
-              var xIn = m.l + r.x + r.w / 2;
-              var yIn = m.t + r.y + r.h / 2;
-              var xOut = Math.max(0, m.l + r.x - 20);
-              var yOut = Math.max(0, m.t + r.y - 20);
-              var out = {};
-              window.dispatchEvent(new MouseEvent('mousemove', { clientX: xIn, clientY: yIn, screenX: xIn, screenY: yIn }));
-              out.inside = d.interactive === true;
-              window.dispatchEvent(new MouseEvent('mousemove', { clientX: xOut, clientY: yOut, screenX: xOut, screenY: yOut }));
-              out.outside = d.interactive === false;
-              hit.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: xIn, clientY: yIn, screenX: xIn, screenY: yIn, pointerId: 94 }));
-              window.dispatchEvent(new MouseEvent('mousemove', { clientX: xOut, clientY: yOut, screenX: xOut, screenY: yOut }));
-              out.duringDragForced = d.interactive === true;
-              window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: xOut, clientY: yOut, screenX: xOut, screenY: yOut, pointerId: 94 }));
-              return out;
-            })(),
-            videoSrcA: (document.querySelectorAll('.pet-sprite video')[0] || { src: '' }).src,
-            videoSrcB: (document.querySelectorAll('.pet-sprite video')[1] || { src: '' }).src,
-            // 右键菜单自检：在命中区派发 contextmenu → 校验菜单挂载/根文案/子面板/运行错误
-            menuSmoke: await (async function () {
-              // 前面 drag/release/interactive 测试刚拖过宠：justDragged 100ms 内屏蔽右键，
-              // 真实用户不会拖完立刻右键——先等 250ms 消除该时序影响
-              await new Promise(function (resolve) {
-                setTimeout(resolve, 250);
-              });
-              var hit = document.querySelector('.pet-hit');
-              var d = window.__dshPetDebug;
-              if (!hit || !d) return null;
-              var errsBefore = (d.errors || []).length;
-              try {
-                hit.dispatchEvent(
-                  new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 400, clientY: 260, screenX: 400, screenY: 260 }),
-                );
-              } catch (err) {
-                return { threw: String(err), menuMounted: false };
-              }
-              var menu = document.querySelector('.dsh-pet-menu');
-              var out = {
-                threw: null,
-                menuMounted: !!menu,
-                menuOpen: d.menuOpen === true,
-                rootText: menu ? menu.textContent.slice(0, 60) : '',
-                errsNew: (d.errors || []).length - errsBefore,
-              };
-              if (menu) {
-                var branch = menu.querySelector('.dsh-pet-menu-branch');
-                if (branch) {
-                  branch.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, relatedTarget: menu }));
-                  var panels = Array.prototype.slice.call(
-                    menu.querySelectorAll('.dsh-pet-menu-column'),
-                  );
-                  var visible = function () {
-                    return panels.filter(function (p) {
-                      return p.style.display !== 'none';
-                    });
-                  };
-                  out.panelCount = panels.length;
-                  out.lvl2AfterHoverRoot = visible().length;
-                  // 二级：悬停「动作」下的第一个分类 → 打开三级面板（具体动画）
-                  var panel1 = visible().filter(function (p) {
-                    return p !== panels[0];
-                  })[0];
-                  if (panel1) {
-                    var cat = panel1.querySelector('.dsh-pet-menu-branch');
-                    if (cat) {
-                      cat.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, relatedTarget: panel1 }));
-                      await new Promise(function (resolve) {
-                        setTimeout(resolve, 50);
-                      });
-                      out.lvl3AfterHoverCat = visible().length;
-                      // 重放用户路径：鼠标从分类项移向三级面板（先离开分类项进入 4px 缝隙，
-                      // 再进入三级面板）——缝隙里 mouseleave 会排 160ms 关闭定时器
-                      cat.dispatchEvent(
-                        new MouseEvent('mouseleave', { bubbles: false, relatedTarget: document.body }),
-                      );
-                      await new Promise(function (resolve) {
-                        setTimeout(resolve, 60);
-                      });
-                      var panel2 = visible()[visible().length - 1];
-                      if (panel2) {
-                        panel2.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
-                      }
-                      await new Promise(function (resolve) {
-                        setTimeout(resolve, 220);
-                      });
-                      out.lvl3SurvivedAfterReenter = visible().length;
-                      // 极端情况：缝隙停留超过关闭延时（鼠标犹豫）
-                      cat.dispatchEvent(
-                        new MouseEvent('mouseleave', { bubbles: false, relatedTarget: document.body }),
-                      );
-                      await new Promise(function (resolve) {
-                        setTimeout(resolve, 260);
-                      });
-                      out.lvl3AfterGapHover = visible().length;
-                    }
-                  }
-                }
-              }
-              return out;
-            })(),
-          }))()`);
-          console.log(
-            '[dsh-pet-desktop-helper] smoke dump: windows=' +
-              windows.size +
-              ' ids=' +
-              JSON.stringify([...windows.keys()]) +
-              ' => ' +
-              JSON.stringify(dump),
-          );
-          console.log('[dsh-pet-desktop-helper] smoke bounds:', JSON.stringify(first.getContentBounds()));
-          // 点击穿透 round-trip：setInteractive(true)→窗口捕获输入（忽略鼠标=false）；
-          // setInteractive(false)→恢复整窗穿透（忽略鼠标=true）。状态取自主进程镜像 windowIgnore。
-          // 期间暂停兜底轮询：它按真实光标位置翻转，冒烟时鼠标不在宠物身上会覆盖本断言的状态。
-          pointerFallbackPaused = true;
-          await first.webContents.executeJavaScript('window.petBridge.setInteractive(true); true;');
-          await new Promise((r) => setTimeout(r, 80));
-          const interactiveIgnoring = windowIgnore.get(first.id);
-          await first.webContents.executeJavaScript('window.petBridge.setInteractive(false); true;');
-          await new Promise((r) => setTimeout(r, 80));
-          const passthroughIgnoring = windowIgnore.get(first.id);
-          pointerFallbackPaused = false;
-          console.log(
-            '[dsh-pet-desktop-helper] smoke interactive round-trip:',
-            JSON.stringify({ interactiveIgnoring, passthroughIgnoring }),
-          );
-          const image = await first.webContents.capturePage();
-          writeFileSync(smokeOut, image.toPNG());
-          console.log('[dsh-pet-desktop-helper] smoke capture:', smokeOut);
-        }
-      } catch (error) {
-        console.error('[dsh-pet-desktop-helper] smoke capture failed:', error);
-      }
-      setTimeout(() => app.quit(), 500);
-    }, afterMs);
-  }
 });
 
 app.on('window-all-closed', () => {

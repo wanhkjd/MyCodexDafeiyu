@@ -6,15 +6,14 @@
  * **整条链路只有一个入口**。该钩子在 Windows 上会静默失效（回调超时被系统摘掉、或被其它软件的
  * 钩子干扰），失效后没有任何退路：光标悬浮不触发手套光标、拖不动、点击与右键全无反应。
  *
- * 这里把「按真实光标位置决定要不要可交互」抽成纯函数：不 require('electron')，可被 node:test
- * 直接加载单测。主进程侧只负责 60ms 轮询取光标 + 调用本函数 + 翻转窗口。
+ * 这里按真实光标位置判断可交互状态。主进程侧负责 60ms 轮询取光标、调用本函数和翻转窗口。
  *
  * 坐标系：全部用 DIP（`win.getBounds()` 与 `screen.getCursorScreenPoint()` 同为 DIP，可比）。
  */
 
 'use strict';
 
-/** 宠物身体命中区（画布坐标，与 src/shared/constants.ts 的 HIT_BOX 一致；守卫测试钉住二者同步） */
+/** 宠物身体命中区（画布坐标，与 src/shared/constants.ts 的 HIT_BOX 一致） */
 const HIT_BOX = { x0: 200, y0: 50, x1: 440, y1: 335 };
 /** 动画画布尺寸：高取 shared 的 CANVAS_H，宽与 sprite.js / shared 一样用字面量 640（shared 未导出宽） */
 const CANVAS_H = 360;
@@ -99,17 +98,17 @@ function pointerZone(bounds, point) {
  * @returns {boolean} 新的穿透状态
  */
 function decideWindowIgnore(bounds, point, ignoring, busy, offBodyMs = 0, input) {
-  if (busy) {
-    if (!input || input.dragging) return false; // 兼容旧渲染端；拖拽租约绝不被位置判定打断
-    const inControl = input.rects.some(
-      (r) =>
-        point.x >= bounds.x + r.x &&
-        point.x < bounds.x + r.x + r.width &&
-        point.y >= bounds.y + r.y &&
-        point.y < bounds.y + r.y + r.height,
-    );
-    return !inControl && pointerZone(bounds, point) !== 'body';
-  }
+  if (input?.dragging || (busy && !input)) return false; // 拖拽租约不被位置判定打断
+  // 饭碗也是独立控件，无需菜单/聊天 busy；只接收自身矩形内的点击。
+  const inControl = input?.rects?.some(
+    (r) =>
+      point.x >= bounds.x + r.x &&
+      point.x < bounds.x + r.x + r.width &&
+      point.y >= bounds.y + r.y &&
+      point.y < bounds.y + r.y + r.height,
+  );
+  if (inControl) return false;
+  if (busy) return pointerZone(bounds, point) !== 'body';
   const zone = pointerZone(bounds, point);
   if (zone === 'outside') return true; // 窗外：恢复穿透
   if (zone === 'body') return false; // 宠物身上：可交互

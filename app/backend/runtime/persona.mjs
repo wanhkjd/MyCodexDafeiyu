@@ -1,8 +1,9 @@
 // Her persona for chat: the name you gave her, how she calls you, a personality preset and your own additions,
 // plus what she is feeling right now (from the mood system) and the action tags her replies may carry.
 // Settings live in persona.json in the data folder. Nothing here calls a model.
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { activeCharacter } from './characters.mjs';
 
 export const PRESETS = [
   { id: 'playful', name: '俏皮傲娇', text: '俏皮傲娇，贱兮兮但可爱。爱吐槽、会回嘴，心是软的，关心用户；偶尔馋白饭、想摸鱼。' },
@@ -21,9 +22,24 @@ export const ACTIONS = {
   鞠躬: ['女仆屈膝礼仪'], 吃东西: ['大口吃零食', '吃白饭'],
 };
 
+export const BAILONG_ACTIONS = {
+  开心: ['18'], 害羞: ['20'], 傲娇: ['09'], 咯咯笑: ['08'], 挥手: ['01'], 敬礼: ['work01'],
+  吓一跳: ['13'], 拍尾巴: ['idle06'], 吐息: ['25'], 吐泡泡: ['25'], 转圈: ['05'], 跳舞: ['18'], 鞠躬: ['04'], 打哈欠: ['14'], 思考: ['work04'],
+  叹气: ['13'], 庆祝: ['18'], 吃东西: ['17'], 比心: ['20'],
+};
 export const LIMITS = { name: 12, call: 12, notes: 800 };
 const DEFAULTS = { name: '', call: '', preset: 'playful', notes: '', shareState: true, actions: true };
-const fileOf = dataDir => join(dataDir, 'persona.json');
+export function ensureSharedPersona(dataDir) {
+  const common = join(dataDir, 'persona.json'), legacy = join(dataDir, 'persona-bailong.json');
+  const marker = join(dataDir, 'persona-shared-v1.json');
+  if (existsSync(legacy) && !existsSync(marker)) {
+    for (const file of [common, legacy]) if (existsSync(file) && !existsSync(file + '.before-shared.bak')) copyFileSync(file, file + '.before-shared.bak');
+    if (!existsSync(common)) copyFileSync(legacy, common);
+    writeFileSync(marker, JSON.stringify({ version: 1, source: 'persona.json', legacyPreserved: true }) + '\n');
+  }
+  return common;
+}
+const fileOf = ensureSharedPersona;
 
 /** Saved settings with every field filled; anything missing or invalid falls back to the default. */
 export function readPersona(dataDir) {
@@ -31,6 +47,7 @@ export function readPersona(dataDir) {
   try { raw = JSON.parse(readFileSync(fileOf(dataDir), 'utf8').replace(/^\uFEFF/, '')) || {}; } catch { /* Not set up yet. */ }
   const text = (value, max) => typeof value === 'string' && value.trim().length <= max ? value.trim() : '';
   return {
+    ...(activeCharacter(dataDir) === 'bailong' ? { character: 'bailong' } : {}),
     name: text(raw.name, LIMITS.name).replace(/\s+/g, ' '), call: text(raw.call, LIMITS.call).replace(/\s+/g, ' '),
     preset: PRESETS.some(p => p.id === raw.preset) ? raw.preset : DEFAULTS.preset,
     notes: text(raw.notes, LIMITS.notes),
@@ -118,10 +135,10 @@ export const withState = (state, text) => state ? `${state}\n（以上【此刻�
 const TAG = /\[\s*动作\s*[:：]\s*([^\]\n]{1,12}?)\s*\]/g;
 
 /** Take the action tag out of a reply: {text without any tags, action name or null, animation or null}. */
-export function takeAction(reply, random = Math.random) {
+export function takeAction(reply, random = Math.random, character = 'dafeiyu') {
   let name = null;
   const text = String(reply ?? '').replace(TAG, (_, found) => { name ??= found.trim(); return ''; }).replace(/\n{3,}/g, '\n\n').trim();
-  const animations = name ? ACTIONS[name] : null;
+  const animations = name ? (character === 'bailong' ? BAILONG_ACTIONS : ACTIONS)[name] : null;
   return {
     text: text || (animations ? `（${name}）` : ''),
     action: animations ? name : null,

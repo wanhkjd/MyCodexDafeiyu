@@ -1,4 +1,4 @@
-param([switch]$CloseRunning)
+param([switch]$CloseRunning, [switch]$NoBackup)
 $ErrorActionPreference = 'Stop'
 $workspace = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $package = Get-Content -LiteralPath (Join-Path $workspace 'package.json') -Raw | ConvertFrom-Json
@@ -55,21 +55,23 @@ if ((Running-Portable).Count) {
   while ((Running-Portable).Count -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 400 }
   if ((Running-Portable).Count) { throw 'The local program is still running. Exit it manually and retry; no files were changed.' }
 }
-$backupRoot = Join-Path $workspace 'backups'
-if (Test-Path -LiteralPath $backupRoot) { Assert-Plain $backupRoot }
-$backup = Join-Path $backupRoot ('local-update-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8))
-Assert-Within $backup $workspace
-New-Item -ItemType Directory -Path $backup -Force | Out-Null
-# Back up every existing target before overwriting any file.
-foreach ($change in $changes) {
-  if ($change.oldHash) {
-    $saved = Join-Path $backup $change.relative
-    Assert-Within $saved $backup
-    New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($saved)) -Force | Out-Null
-    Copy-Item -LiteralPath $change.destination -Destination $saved
+if (-not $NoBackup) {
+  $backupRoot = Join-Path $workspace 'backups'
+  if (Test-Path -LiteralPath $backupRoot) { Assert-Plain $backupRoot }
+  $backup = Join-Path $backupRoot ('local-update-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8))
+  Assert-Within $backup $workspace
+  New-Item -ItemType Directory -Path $backup -Force | Out-Null
+  # Back up every existing target before overwriting any file.
+  foreach ($change in $changes) {
+    if ($change.oldHash) {
+      $saved = Join-Path $backup $change.relative
+      Assert-Within $saved $backup
+      New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($saved)) -Force | Out-Null
+      Copy-Item -LiteralPath $change.destination -Destination $saved
+    }
   }
+  $changes | Select-Object relative,oldHash,newHash,remove | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $backup 'manifest.json') -Encoding utf8
 }
-$changes | Select-Object relative,oldHash,newHash,remove | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $backup 'manifest.json') -Encoding utf8
 foreach ($change in $changes) {
   Assert-Within $change.destination $target
   if ($change.remove) { Remove-Item -LiteralPath $change.destination }
@@ -80,5 +82,6 @@ foreach ($change in $changes) {
   }
 }
 Write-Output "Updated $($changes.Count) program files: $target"
-Write-Output "Recoverable backup: $backup"
+if ($NoBackup) { Write-Output 'Backup skipped (-NoBackup).' }
+else { Write-Output "Recoverable backup: $backup" }
 Write-Output 'Personal data and secrets were not read or changed. The program is not auto-started; reopen the same EXE when ready.'

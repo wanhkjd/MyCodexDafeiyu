@@ -16,31 +16,33 @@ class PetSprite {
     // 随同一缩放自动恢复 DIP 观感；跨进程交换（bounds/几何/碰撞）由 constants.js 的
     // toScreen/toLocal 收口换算，这里与 shared 组件一样零乘除。
     this.size = pet.size;
-    this.height = (this.size * 9) / 16;
+    this.character = pet.character || null;
+    this.behavior = { largeActions: true, flight: true, ...pet.behavior };
+    this.suspended = false;
+    this.flightRef = null;
+    this.flightToken = 0;
+    this.pendingFlight = null;
+    this.flightPlan = null;
+    this.nextFlightAt = performance.now() + 20000;
+    const geometry = this.character?.geometry || { width: 640, height: 360, feetY: S.FEET_Y, hitBox: S.HIT_BOX };
+    this.geometry = geometry;
+    this.height = this.size * geometry.height / geometry.width;
     this.halfW = this.size / 2;
     this.halfH = this.height / 2;
-    this.bottomPad = (this.size * (9 / 16) * (S.CANVAS_H - S.FEET_Y)) / S.CANVAS_H;
-    // 窗口高 = 舞台高 + 脚底垫高（stage 被 translateY(bottomPad) 下移的余量，防底部被窗口裁剪）
+    this.bottomPad = this.height * (geometry.height - geometry.feetY) / geometry.height;
     this.winH = this.height + this.bottomPad;
-    // 窗口内【可交互区域】= 身体命中区（像素，窗口坐标）。浏览器 overlay 只有 .dsh-pet-hit 是
-    // pointer-events:auto（root/stage/气泡全 none）——桌面严格对齐：命中区外含透明像素一律穿透到下层应用。
-    // HIT_BOX 是 640×360 舞台坐标：x 按窗口宽缩放；y 除舞台高外还要加 bottomPad（舞台被下移）。
+    const box = geometry.hitBox;
     this.hitRect = {
-      x: (S.HIT_BOX.x0 / 640) * this.size,
-      y: this.bottomPad + (S.HIT_BOX.y0 / 360) * this.height,
-      w: ((S.HIT_BOX.x1 - S.HIT_BOX.x0) / 640) * this.size,
-      h: ((S.HIT_BOX.y1 - S.HIT_BOX.y0) / 360) * this.height,
+      x: box.x0 / geometry.width * this.size,
+      y: this.bottomPad + box.y0 / geometry.height * this.height,
+      w: (box.x1 - box.x0) / geometry.width * this.size,
+      h: (box.y1 - box.y0) / geometry.height * this.height,
     };
-    window.__dshPetDebug.hitRect = this.hitRect;
-    // 左右透明边余量（视频盒内宠物身体居中）：让边界按"身体"贴边——宠物能走到屏幕边缘，
-    // 但身体永不越界（漫游/拖拽都不会弄丢宠物）。与浏览器 overlay 的 sideAllow 同一套语义。
-    this.sideAllow = (S.HIT_BOX.x0 / 640) * this.size;
-    window.__dshPetDebug.sideAllow = this.sideAllow;
+    this.sideAllow = Math.min(box.x0, geometry.width - box.x1) / geometry.width * this.size;
     // 窗口四周外扩（= WINDOW_MARGIN_RATIO×宠物尺寸）：sprite 钉在 (margin.l, margin.t)，
     // 窗口 = sprite + 四边余量——气泡/未来弹窗显示在余量里；余量透明且点击穿透
     const m = this.size * WINDOW_MARGIN_RATIO;
     this.margin = { t: m, r: m, b: m, l: m };
-    window.__dshPetDebug.winMargin = this.margin;
     // 宠物包围盒左上角在【工作区】坐标系里的位置（本窗口的位置 = 宠物的位置）
     this.pos = { x: 0, y: 0 };
 
@@ -139,6 +141,7 @@ class PetSprite {
     this.el.style.setProperty('--pet-size', this.size + 'px');
     const stage = document.createElement('div');
     stage.className = 'pet-stage';
+    stage.style.height = this.height + 'px';
     stage.style.transform = 'translateY(' + this.bottomPad + 'px)';
     this.stage = stage;
     this.videoA = document.createElement('video');
@@ -152,10 +155,10 @@ class PetSprite {
     }
     this.hit = document.createElement('div');
     this.hit.className = 'pet-hit';
-    this.hit.style.left = (S.HIT_BOX.x0 / 640) * 100 + '%';
-    this.hit.style.top = (S.HIT_BOX.y0 / 360) * 100 + '%';
-    this.hit.style.width = ((S.HIT_BOX.x1 - S.HIT_BOX.x0) / 640) * 100 + '%';
-    this.hit.style.height = ((S.HIT_BOX.y1 - S.HIT_BOX.y0) / 360) * 100 + '%';
+    this.hit.style.left = this.hitRect.x + 'px';
+    this.hit.style.top = (this.hitRect.y - this.bottomPad) + 'px';
+    this.hit.style.width = this.hitRect.w + 'px';
+    this.hit.style.height = this.hitRect.h + 'px';
     // 原先这里挂 title（原生系统提示）：已换成自绘浮层，但无障碍名称不能跟着丢
     this.hit.setAttribute('aria-label', this.pet.name);
     this.bubble = document.createElement('div');
@@ -169,6 +172,9 @@ class PetSprite {
     stage.appendChild(this.videoA);
     stage.appendChild(this.videoB);
     stage.appendChild(this.hit);
+    this.feedingBusy = false;
+    this.riceActive = false;
+    this.riceSession = null;
     this.el.appendChild(this.bubble);
     this.el.appendChild(this.tip);
     this.el.appendChild(stage);
@@ -178,6 +184,14 @@ class PetSprite {
     // 事件（与浏览器同一套：pointerdown/move、click、window pointerup/cancel）
     const ac = new AbortController();
     this.ac = ac;
+    this.riceStateClose = window.petBridge?.onRiceState?.(state => {
+      if (this.ac.signal.aborted) return;
+      this.riceActive = state.active === true;
+      this.riceSession = this.riceActive ? state.session : null;
+      this.el.classList.toggle('is-rice-target', this.riceActive && state.over === true);
+      if (this.riceActive) { this.stopThrow(); this.stopFlight(); this.stopMove(); this.setTip(false); }
+    });
+    this.riceDropClose = window.petBridge?.onRiceDrop?.(request => { void this.feedRice(request); });
     // 级联菜单新增面板、聊天输入增长都可能在鼠标停住时发生，不能只等下一次 mousemove。
     this.inputRegionResize = new ResizeObserver(() => this.syncInputRegions());
     this.inputRegionElements = new Set();
@@ -251,6 +265,9 @@ class PetSprite {
 
   dispose() {
     this.ac.abort();
+    window.petBridge?.cancelRice?.();
+    this.riceStateClose?.();
+    this.riceDropClose?.();
     this.inputRegionMutation.disconnect();
     this.inputRegionResize.disconnect();
     this.inputRegionElements.clear();
@@ -276,7 +293,6 @@ class PetSprite {
   // 主进程侧（bounds/去重/碰撞 broker）完全不用改。
   sendBounds(px, py) {
     this.pos = { x: Math.round(px), y: Math.round(py) };
-    window.__dshPetDebug.dragPos = { x: this.pos.x, y: this.pos.y };
     if (window.petBridge) {
       // 完整状态一次捎带：size/bottomPad 让静止宠物从首帧起就登记进碰撞站场
       // （此前只有 report-flight 带尺寸，从没飞过的宠物 size=0 被碰撞检测直接跳过）；
@@ -299,6 +315,7 @@ class PetSprite {
     // 而光标存的是视口坐标，窗口一移，光标相对窗口的位置就变了，不重摆提示会跟着窗口漂走。
     // 只在显示时重摆：漫游逐帧调本函数，没显示提示时不做无谓的 DOM 写入。
     if (this.tipOn) this.renderTip();
+    this.syncRiceTarget();
   }
 
   // 角落/边距 → 窗口位置；拖拽后按会话内位置（比例）还原——**松手无任何边界夹取**，
@@ -324,6 +341,7 @@ class PetSprite {
           this.pet.position.marginY -
           (this.pet.position.corner.startsWith('top-') ? this.size * CONFIG.topInsetRatio : 0),
         size: this.size,
+        height: this.height,
         W,
         H,
         area: PRIMARY_AREA || undefined,
@@ -337,7 +355,7 @@ class PetSprite {
   /** 抛掷空间（逐屏 AABB）。AREAS/PANELS 变化时由 relayout() 置空重建——飞行中每帧重算太浪费 */
   throwSpaceOf() {
     if (!this.space || this.space.areas !== AREAS || this.space.panels !== PANELS) {
-      this.space = S.throwSpace({ areas: AREAS, panels: PANELS, size: this.size, sideAllow: this.sideAllow });
+      this.space = S.throwSpace({ areas: AREAS, panels: PANELS, size: this.size, height: this.height, sideAllow: this.sideAllow });
       for (const b of this.space.bounds) b.minY -= this.size * CONFIG.topInsetRatio;
     }
     return this.space;
@@ -359,6 +377,7 @@ class PetSprite {
       this.customPos = { rx: p.x / VIEW.w, ry: p.y / VIEW.h };
     }
     this.position();
+    this.clampFlightPosition();
   }
 
   currentCenterX() {
@@ -370,9 +389,106 @@ class PetSprite {
     return this.pos.y + this.halfH;
   }
 
+  resolveAnimation(name) {
+    if (!this.character) return name;
+    return Object.hasOwn(this.character.clips, name) ? name : this.character.aliases[name] || this.character.fallback;
+  }
+
+  isFlightAnimation(name) {
+    return !!this.character?.flightAnimations?.includes(this.resolveAnimation(name));
+  }
+
+  actionAllowed(name) {
+    const resolved = this.resolveAnimation(name);
+    if (this.isFlightAnimation(resolved)) return this.behavior.largeActions && this.behavior.flight;
+    if (this.behavior.largeActions) return true;
+    return resolved === this.animations.idle[0] || this.animations.clicks.includes(resolved) || this.animations.drag.includes(resolved) || resolved === this.character?.landing;
+  }
+
+  setBehavior(value) {
+    const wasFlying = !!this.flightPlan || !!this.pendingFlight;
+    this.behavior = { largeActions: value?.largeActions !== false, flight: value?.flight !== false };
+    if (wasFlying && (!this.behavior.largeActions || !this.behavior.flight)) {
+      this.stopMove();
+      this.clampFlightPosition();
+      if (!this.suspended && !this.dragState.active) this.playOnce(this.character.landing);
+    } else if (!this.behavior.largeActions && !this.dragState.active && !this.actionAllowed(this.anim)) {
+      this.stopMove();
+      if (!this.suspended) this.playOnce(this.animations.idle[0]);
+    }
+  }
+
+  clampFlightPosition() {
+    if (!this.character) return;
+    const b = FlightMotion.boundsAt({ ...this.pos, width: this.size, height: this.winH, areas: PANELS.length ? PANELS : AREAS });
+    if (!b) return;
+    const x = Math.max(b.minX, Math.min(b.maxX, this.pos.x)), y = Math.max(b.minY, Math.min(b.maxY, this.pos.y));
+    this.customPos = { rx: (x + this.halfW) / VIEW.w, ry: (y + this.halfH) / VIEW.h };
+    this.sendBounds(x, y);
+  }
+
+  tryFlight(name) {
+    if (this.riceActive || !this.character?.flightAnimations?.length || !this.behavior.flight || !this.behavior.largeActions || this.suspended || this.dragState.active || this.menuOpen || this.chatOpen || this.throwRef !== null) return false;
+    const clip = name ? this.character.clips[name] : null;
+    if (name && !this.isFlightAnimation(name)) return false;
+    const plan = FlightMotion.plan({ ...this.pos, width: this.size, height: this.winH, areas: PANELS.length ? PANELS : AREAS, direction: clip?.sourceFacing });
+    if (!plan) return false;
+    const animation = name || this.character.flightAnimations.find(id => this.character.clips[id].sourceFacing === plan.direction);
+    if (!animation) return false;
+    this.stopThrow();this.stopMove();
+    this.facing = plan.direction;
+    this.pendingFlight = { ...plan, animation };
+    this.nextFlightAt = performance.now() + 45000 + Math.random() * 45000;
+    this.sendBounds(plan.start.x, plan.start.y);
+    this.playOnce(animation);
+    return true;
+  }
+
+  maybeFly() {
+    if (this.pet.fixedEnabled || performance.now() < this.nextFlightAt || this.inputBusy() || this.workState && !['success', 'error'].includes(this.workState)) return false;
+    if (Math.random() > 0.25) return false;
+    return this.tryFlight();
+  }
+
+  startFlightDrive(el) {
+    const plan = this.pendingFlight;
+    if (!plan || this.suspended || this.flightRef !== null) return;
+    this.pendingFlight = null;this.flightPlan = plan;
+    const clip = this.character.clips[plan.animation], token = ++this.flightToken;
+    const step = () => {
+      if (this.flightToken !== token || this.suspended) return;
+      const pose = FlightMotion.sample(plan, (el.currentTime || 0) * 1000, clip.moveStartMs, clip.moveStopMs);
+      this.sendBounds(pose.x, pose.y);
+      this.customPos = { rx: (this.pos.x + this.halfW) / VIEW.w, ry: (this.pos.y + this.halfH) / VIEW.h };
+      if (pose.progress < 1) this.flightRef = requestAnimationFrame(step);
+      else this.flightRef = null;
+    };
+    this.flightRef = requestAnimationFrame(step);
+  }
+
+  stopFlight() {
+    const active = this.flightPlan || this.pendingFlight;
+    this.flightToken++;
+    if (this.flightRef !== null) cancelAnimationFrame(this.flightRef);
+    this.flightRef = null;this.flightPlan = null;this.pendingFlight = null;
+    if (active) {
+      this.customPos = { rx: (this.pos.x + this.halfW) / VIEW.w, ry: (this.pos.y + this.halfH) / VIEW.h };
+    }
+  }
+
+  videoTransform(name) {
+    if (!this.character) return this.facing === 'right' ? 'scaleX(-1)' : '';
+    const clip = this.character.clips[this.resolveAnimation(name)];
+    return 'translate(' + clip.renderOffset[0] * this.size + 'px,' + clip.renderOffset[1] * this.height + 'px) scale(' + clip.renderScale + ')';
+  }
+
   // 双缓冲切换（与浏览器同一套：前台 opacity 切换 + 降级视频清 handler 并停播，防残留 ended 雪崩）
   switchTo(next, nextOnce) {
-    if (!next) return;
+    if (!next || this.suspended) return;
+    next = this.resolveAnimation(next);
+    if (!this.actionAllowed(next)) next = this.animations.idle[0];
+    if ((this.flightPlan || this.pendingFlight) && next !== (this.flightPlan || this.pendingFlight).animation) this.stopFlight();
+    this.anim = next;
     const pending = this.pending;
     if (pending && pending.anim === next && pending.once === nextOnce) {
       // 防重命中（单动画点击时目标=当前动画，不重播）：仍消费 Q 弹标记，压当前前台视频，
@@ -388,10 +504,12 @@ class PetSprite {
     const target = this.front === 0 ? this.videoB : this.videoA;
     const el = target;
     if (!el) return;
+    el.dataset.animation = next;
+    el.style.transformOrigin = 'bottom center';
     el.src = this.assetBase + encodeURIComponent(next) + (S.ANIMATION_EXT || '.webm');
     el.loop = !nextOnce;
     el.muted = true;
-    el.autoplay = true;
+    el.autoplay = false;
     el.playsInline = true;
     el.onended = nextOnce ? () => this.handleEnded() : null;
     // 加载兜底（与浏览器 web 端 fetch+blob 的 10s 超时同义）：素材加载失败或卡住时必须释放
@@ -401,18 +519,23 @@ class PetSprite {
       if (!this.pending || this.pending.gen !== gen) return;
       this.pending = null;
       console.warn('[dsh-pet] 素材加载失败 pet=' + this.pet.id + ' anim=' + next + '：' + why + '（已释放本次切换）');
+      this.stopMove();
+      if (this.character && !this.characterRecovery) {
+        this.characterRecovery = true;
+        // A missing local pack falls back on config reload; don't loop over invalid media.
+        window.setTimeout(() => this.reloadDesktop(), 2200);
+      }
     };
     const loadTimer = window.setTimeout(() => loadGuard('10s 超时'), 10000);
     el.onerror = () => {
       window.clearTimeout(loadTimer);
       loadGuard('video error');
     };
-    el.load();
     const onReady = () => {
-      el.removeEventListener('loadeddata', onReady);
+      if (el.onloadeddata === onReady) el.onloadeddata = null;
       window.clearTimeout(loadTimer);
       el.onerror = null;
-      if (this.pending && this.pending.gen !== gen) return;
+      if (this.gen !== gen || !this.pending || this.pending.gen !== gen) return;
       const old = this.front === 0 ? this.videoA : this.videoB;
       el.classList.add('is-front');
       if (old && old !== el) {
@@ -422,16 +545,18 @@ class PetSprite {
       }
       this.front = this.front === 0 ? 1 : 0;
       this.pending = null;
-      el.style.transform = this.facing === 'right' ? 'scaleX(-1)' : '';
-      el.play().catch(() => {});
+      el.style.transform = this.videoTransform(next);
+      if (!this.suspended) el.play().catch(() => {}); else el.pause();
       // 点击 Q 弹：等新动画就位后才压（压的是新点击动画的首帧，与浏览器一致）
       if (this.pendingSquash) {
         this.pendingSquash = false;
         this.startSquash(el);
       }
-      if (this.pendingMove) this.startMoveDrive(el);
+      if (this.pendingMove && !this.suspended) this.startMoveDrive(el);
+      if (this.pendingFlight && !this.suspended) this.startFlightDrive(el);
     };
-    el.addEventListener('loadeddata', onReady);
+    el.onloadeddata = onReady;
+    el.load();
     if (el.readyState >= 2) onReady();
   }
 
@@ -443,6 +568,10 @@ class PetSprite {
 
   // 动画链（与浏览器 pickNext 语义一致，纯逻辑在 shared）
   playIdle() {
+    if (this.suspended || this.dragState.active) return;
+    if (this.riceActive) { this.stopMove(); this.playOnce(this.animations.idle[0]); return; }
+    if (this.maybeFly()) return;
+    if (!this.behavior.largeActions || this.inputBusy()) { this.stopMove(); this.playOnce(this.animations.idle[0]); return; }
     const mods = this.mood && this.mood.mods;
     if (mods) {
       this.playMoodIdle(mods);
@@ -497,6 +626,7 @@ class PetSprite {
       entries.push({ kind: 'cat', cat, weight: cat.weight * (cats[cat.id] ?? 1) });
     }
     for (const [anim, weight] of Object.entries(mods.boost || {})) {
+      if (this.character && !this.character.clips[anim] && !this.character.aliases[anim]) continue;
       if (anim === this.anim && !mods.sticky) continue;
       if (this.facing === 'right' && S.isNoMirrorAnimation(animations.categories, anim)) continue;
       entries.push({ kind: 'boost', anim, weight });
@@ -524,6 +654,44 @@ class PetSprite {
   /** 宿主 mood 叶子：enabled=false 或缺省 → 回到原行为 */
   setMood(data) {
     this.mood = data && data.enabled === true ? data : null;
+    this.syncRiceTarget();
+    this.syncInputRegions();
+  }
+
+  /** Local physical body bounds: the main process adds the current native window origin. */
+  syncRiceTarget() {
+    if (!window.petBridge?.setRiceTarget || !this.hit) return;
+    const r = this.hit.getBoundingClientRect();
+    const data = { enabled: !!this.mood, rect: { x: toScreen(r.x), y: toScreen(r.y), width: toScreen(r.width), height: toScreen(r.height) } };
+    const key = JSON.stringify(data);
+    if (key === this._riceTarget) return;
+    this._riceTarget = key;
+    window.petBridge.setRiceTarget(data);
+  }
+
+  /** Only a validated native drop may feed; spawning or clicking food never does. */
+  async feedRice(request) {
+    if (!request || !this.riceActive || request.session !== this.riceSession) return;
+    const result = { ...request, ok: false };
+    if (!this.mood || this.feedingBusy || this.suspended || this.ac.signal.aborted) {
+      window.petBridge?.riceResult?.(result);
+      return;
+    }
+    this.feedingBusy = true;
+    this.setTip(false);
+    this.stopMove();
+    try {
+      result.ok = await S.postAction(BASE + '/mood', { action: 'feed' });
+      if (!this.ac.signal.aborted) {
+        if (result.ok) pollStateNow(); // Host publishes the eating action for either character.
+        else this.showWhisper('还没喂成功，白饭先留着，稍后再拖过来～');
+      }
+    } catch {
+      if (!this.ac.signal.aborted) this.showWhisper('暂时连不上后台，白饭留着稍后再喂～');
+    } finally {
+      this.feedingBusy = false;
+      if (!this.ac.signal.aborted) window.petBridge?.riceResult?.(result);
+    }
   }
 
   /** 互动上报给宿主心情系统（点击/拖拽/扔/点播）；失败静默，不影响宠物本身 */
@@ -532,7 +700,10 @@ class PetSprite {
   }
 
   handleEnded() {
-    if (this.dragState.active) return;
+    if (this.dragState.active || this.suspended) return;
+    if (this.flightPlan && this.isFlightAnimation(this.anim)) {
+      this.stopFlight();this.clampFlightPosition();this.playOnce(this.character.landing);return;
+    }
     const { animations } = { animations: this.animations };
     // 事件动画播完：回 idle（与 drag/clicks 同分支，不进随机链）；气泡由定时器自动消失，与动画解耦
     const isEvent = S.isEventAnim(animations.events, this.anim);
@@ -600,6 +771,7 @@ class PetSprite {
   // ---- 漫游（rAF 驱动，动画首尾各 leadSec/tailSec 秒原地不动；几何在 shared/planMove） ----
   // preferredName 传入时固定使用该动画（右键菜单点播移动动画），否则与随机链一致随机选
   tryMove(preferredName) {
+    if (!this.behavior.largeActions || this.suspended || this.dragState.active || this.flightPlan || this.pendingFlight) return false;
     if (this.moveRef !== null || this.pendingMove || this.throwRef !== null) return true;
     const moves = this.animations.moves;
     const actions = moves.actions;
@@ -609,7 +781,9 @@ class PetSprite {
       : actions[Math.floor(Math.random() * actions.length)];
     if (!chosen) return false;
     const mp = Object.assign({}, moves.default, chosen.params || {});
-    const dir = (this.facing === 'right') !== this.animations.turn.includes(this.anim) ? 1 : -1;
+    const sourceFacing = this.character?.clips[chosen.name]?.sourceFacing;
+    if (sourceFacing) this.facing = sourceFacing;
+    const dir = sourceFacing ? (sourceFacing === 'right' ? 1 : -1) : (this.facing === 'right') !== this.animations.turn.includes(this.anim) ? 1 : -1;
     const W = VIEW.w;
     const H = VIEW.h;
     const distScale = this.size / S.PET_REF_WIDTH;
@@ -665,6 +839,7 @@ class PetSprite {
   }
 
   stopMove() {
+    this.stopFlight();
     this.pendingMove = null;
     this.moveToken++;
     if (this.moveRef !== null) {
@@ -749,7 +924,7 @@ class PetSprite {
       this.throwState = state;
       // 上报飞行状态（节流 ~30ms）：主进程 broker 汇聚后广播，其它窗口用它做跨窗碰撞检测；
       // broker 协议单位 = 物理像素，这里 ×scale（§3.5 收口）
-      if (window.petBridge && window.petBridge.reportFlight && now - this.lastFlightReport > 30) {
+      if (!this.character && window.petBridge && window.petBridge.reportFlight && now - this.lastFlightReport > 30) {
         window.petBridge.reportFlight({
           x: toScreen(state.x),
           y: toScreen(state.y),
@@ -761,8 +936,8 @@ class PetSprite {
         this.lastFlightReport = now;
       }
       // 宠物间碰撞（仅 petCollision 开启）：飞行中的自己撞到其它宠物 → 动量弹开
-      if (this.physics && this.physics.petCollision) {
-        const myBody = S.bodyPixelBox({ x: state.x, y: state.y, size: this.size, bottomPad: this.bottomPad });
+      if (!this.character && this.physics && this.physics.petCollision) {
+        const myBody = S.bodyPixelBox({ x: state.x, y: state.y, size: this.size, bottomPad: this.bottomPad, hitRect: this.hitRect });
         for (const pid of Object.keys(this.others)) {
           const o = this.others[pid];
           if (!o || !o.size) continue;
@@ -799,7 +974,7 @@ class PetSprite {
         this.throwRef = null;
         this.throwState = null;
         this.customPos = { rx: (this.pos.x + this.halfW) / VIEW.w, ry: (this.pos.y + this.halfH) / VIEW.h };
-        window.__dshPetDebug.lastDragRelease = { x: this.pos.x, y: this.pos.y };
+        if (this.character?.landing) this.playOnce(this.character.landing);
         return;
       }
       this.throwRef = requestAnimationFrame(step);
@@ -809,6 +984,7 @@ class PetSprite {
 
   /** 被撞回调（跨窗碰撞 broker 转发）：停当前动作，从落点以新初速抛出去（全复用现有物理） */
   onDeskHit(vx, vy) {
+    if (this.character) return;
     this.stopMove();
     this.stopDragFollow();
     this.stopThrow();
@@ -829,14 +1005,14 @@ class PetSprite {
       if (this.squashToken !== token) return;
       const u = Math.min((performance.now() - t0) / S.SQ_DURATION_MS, 1);
       const scale = S.squashScale(u, depth);
-      el.style.transform = (this.facing === 'right' ? 'scaleX(-1) ' : '') + 'scaleY(' + scale + ')';
+      el.style.transform = this.videoTransform(el.dataset.animation || this.anim) + ' scaleY(' + scale + ')';
       if (u < 1) {
         this.squashRef = requestAnimationFrame(step);
       } else {
         this.squashRef = null;
         el.style.transformOrigin = origin;
         // 恢复纯镜像（若期间 switchTo 重置过 transform，也以镜像为准）
-        el.style.transform = this.facing === 'right' ? 'scaleX(-1)' : '';
+        el.style.transform = this.videoTransform(el.dataset.animation || this.anim);
       }
     };
     this.squashRef = requestAnimationFrame(step);
@@ -994,22 +1170,12 @@ class PetSprite {
       setTimeout(() => {
         this.justDragged = false;
       }, 100);
-      if (e && Number.isFinite(e.screenX)) {
-        // 原始输入留痕（实机排查用：验证指针屏幕坐标与窗口位移是否一致，如 DPI 缩放问题）
-        window.__dshPetDebug.lastDragRaw = {
-          petX: d.petX,
-          petY: d.petY,
-          sxDown: d.sx,
-          syDown: d.sy,
-          xUp: e.screenX,
-          yUp: e.screenY,
-        };
-      }
       // 拖拽松手：workStatus 非终态时恢复状态循环，否则回 idle（与浏览器 handlePointerUp 一致）
       // 修复：旧实现 switchTo(idle,false)（loop=true，ended 永不触发）→ 随机链永远回不来，
       // 永远卡在同一段待机动画；改为 playOnce（once=true）播一遍 → ended → handleEnded → playIdle 随机链
       if (!this.resumeWorkStatusAnim()) {
-        if (this.animations.idle.length) this.playOnce(S.pick(this.animations.idle, this.anim));
+        if (this.character?.landing) this.playOnce(this.character.landing);
+        else if (this.animations.idle.length) this.playOnce(S.pick(this.animations.idle, this.anim));
       }
       // 释放位置 = 弹簧跟随后的实际包围盒左上角（this.pos 实时；不是指针目标——
       // 跟手滞后时落点跟随宠物实际位置，与浏览器 boxPx 同语义）
@@ -1038,8 +1204,6 @@ class PetSprite {
         // startThrow 落定也按同一公式存），松手无边界夹取
         this.customPos = { rx: (px + this.halfW) / VIEW.w, ry: (py + this.halfH) / VIEW.h };
         this.position();
-        // 释放后的最终窗口位置（position() 换算后，松手无夹取），冒烟断言"释放不位移"用
-        window.__dshPetDebug.lastDragRelease = { x: this.pos.x, y: this.pos.y };
       }
     }
   }
@@ -1069,11 +1233,11 @@ class PetSprite {
     const busy = this.inputBusy();
     if (busy === this._inputBusy) return;
     this._inputBusy = busy;
-    window.__dshPetDebug.inputBusy = busy;
     if (window.petBridge) window.petBridge.setInputBusy(busy);
   }
 
   syncInputRegions() {
+    this.syncRiceTarget();
     if (!window.petBridge || !window.petBridge.setInputRegions) return;
     const rects = [];
     const controls = [...document.querySelectorAll('.dsh-pet-menu-column, .dsh-pet-chat, .pet-sticky:not([hidden])')];
@@ -1104,7 +1268,6 @@ class PetSprite {
     const next = !!flag;
     if (next === this._interactive) return; // 只在状态变化时发 IPC，避免逐帧刷屏
     this._interactive = next;
-    window.__dshPetDebug.interactive = next;
     if (window.petBridge) window.petBridge.setInteractive(next);
   }
 
@@ -1157,7 +1320,6 @@ class PetSprite {
       this.tip.style.top = p.y + 'px';
     }
     this.tip.classList.toggle('is-on', this.tipOn);
-    window.__dshPetDebug.tooltipOn = this.tipOn;
   }
 
   onMouseMove(e) {
@@ -1271,12 +1433,12 @@ class PetSprite {
     // 碎碎念/对话项无条件显示：手动触发不受 whisperEnabled 限制（该字段只影响自动周期轮询）
     // 首项文案随宿主形态变（OPEN_TARGET）：宿主是 DSH 桌面应用时点是"唤起桌面应用窗口"，仍叫「打开网站」会误导
     const tools = [];
-    if (this.pet.balanceEnabled) tools.push({ label: '看额度（Codex）', action: 'show-balance' });
+    if (this.mood) tools.push({ label: '喂白饭', action: 'feed' });
     tools.push(
       { label: '碎碎念（来一句）', action: 'whisper' },
-      { label: '和本鱼对话', action: 'chat' },
+      { label: '和桌宠对话', action: 'chat' },
       { label: 'DDL 提醒 · 便签', action: 'reminders' },
-      { label: '控制大肥鱼 · WASD / 扔白饭', action: 'control' },
+      ...(!this.character ? [{ label: '控制大肥鱼 · WASD / 扔白饭', action: 'control' }] : []),
       { label: '打开 Codex', action: 'open-codex' },
       { label: '回到初始位置', action: 'home' },
       // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置 + 宿主重载生效。
@@ -1293,7 +1455,6 @@ class PetSprite {
     this.menuOpen = true;
     this.setInteractive(true); // 菜单是窗口内 DOM：悬停期间整窗保持可交互，关闭后恢复命中区穿透
     this.syncInputBusy();
-    window.__dshPetDebug.menuOpen = true;
     const m = S.mountContextMenu({
       tree,
       x: e.clientX,
@@ -1308,7 +1469,6 @@ class PetSprite {
       // 菜单被点外/Esc 关闭（非菜单项路径）：同样复位可交互标记，恢复命中区判定
       onClose: () => {
         this.menuOpen = false;
-        window.__dshPetDebug.menuOpen = false;
         this.syncInputBusy();
         if (!this.inputBusy()) this.setInteractive(false);
       },
@@ -1327,10 +1487,7 @@ class PetSprite {
       if (window.petBridge) window.petBridge.openDshSite(ORIGIN); // 系统默认浏览器打开（等效 Ctrl+点击链接）
       return;
     }
-    if (leaf.action === 'show-balance') {
-      this.showBalanceFromMenu(); // 立即拉余额并展示（无需等 1s 触发轮询，展示路径与周期触发一致）
-      return;
-    }
+    if (leaf.action === 'feed') { this.syncRiceTarget(); window.petBridge?.spawnRice?.(); return; }
     if (leaf.action === 'whisper') {
       this.showWhisperFromMenu(); // 立即让 host 强制新生成一句并展示（绕过节流；展示路径与周期触发一致）
       return;
@@ -1352,6 +1509,12 @@ class PetSprite {
       return;
     }
     if (!leaf.anim) return;
+    if (!this.actionAllowed(leaf.anim)) { this.showWhisper('此动作已禁止，请到管理面板开启相应动作开关。'); return; }
+    if (this.isFlightAnimation(leaf.anim)) {
+      if (!this.tryFlight(leaf.anim)) this.showWhisper('当前方向空间不足，或正在交互中，请稍后再试。');
+      return;
+    }
+    this.stopMove();
     if (leaf.anim.startsWith('碎碎念-')) { this.showWhisperFromMenu(leaf.anim); return; }
     // 文字类（noMirror）朝右站姿是镜像的：点播前强制朝左，避免文字镜像（与浏览器随机链"朝右不选文字"同语义）
     if (S.isNoMirrorAnimation(this.animations.categories, leaf.anim) && this.facing === 'right') {
@@ -1372,7 +1535,6 @@ class PetSprite {
       this.menuClose = null;
     }
     this.menuOpen = false;
-    window.__dshPetDebug.menuOpen = false;
     this.syncInputBusy(); // 菜单关：若没有别的占用（拖拽/弹窗）则交还常规判定
     if (!this.inputBusy()) this.setInteractive(false);
   }
@@ -1434,14 +1596,12 @@ class PetSprite {
       onClose: () => {
         this.chatClose = null;
         this.chatOpen = false;
-        window.__dshPetDebug.chatOpen = false;
         this.syncInputBusy(); // 弹窗关：交还常规判定（菜单还开着的话仍保持忙，见 inputBusy）
         if (!this.menuOpen) this.setInteractive(false); // 弹窗关了且无菜单：恢复命中区穿透
       },
     });
     this.chatClose = m.close;
     this.chatOpen = true; // 穿透守卫：弹窗期间整窗保持可交互，光标移到输入框不被翻回穿透
-    window.__dshPetDebug.chatOpen = true;
     this.syncInputBusy();
     this.setInteractive(true);
   }
@@ -1509,7 +1669,6 @@ class PetSprite {
     if (slot === 'none') {
       // 三者都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
       this.bubble.classList.remove('is-on');
-      window.__dshPetDebug.lastBubbleTitle = '';
       return;
     }
     this.bubble.innerHTML = '';
@@ -1552,6 +1711,5 @@ class PetSprite {
       }
     }
     this.bubble.classList.add('is-on');
-    window.__dshPetDebug.lastBubbleTitle = this.bubble.textContent.slice(0, 60);
   }
 }

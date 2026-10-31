@@ -7,7 +7,7 @@ export const pkg = JSON.parse(await fs.readFile(path.join(root, 'package.json'),
 export const artifactName = 'Codex-dafeiyu-v' + pkg.version + '-windows-x64';
 if (!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(pkg.version)) throw new Error('Invalid package version');
 export function requireWindows() {
-  if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('运行/打包仅支持 Windows x64；其他平台可运行 npm test。');
+  if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('运行/打包仅支持 Windows x64。');
   if (process.versions.node !== '24.19.0') throw new Error('为保证运行时与许可证一致，请使用 Node.js 24.19.0（见 .nvmrc）。');
 }
 export async function run(command, args, options = {}) {

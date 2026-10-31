@@ -13,19 +13,15 @@ if (process.env.CODEX_PET_FRAMES) {
   // 「看画面」: the backend started this copy only to grab video frames in a hidden window.
   require('./backend/runtime/bili/grabber.cjs');
 } else if (process.env.CODEX_PET_HELPER === '1') {
-  if (process.env.CODEX_PET_TEST_CDP) app.commandLine.appendSwitch('remote-debugging-port', process.env.CODEX_PET_TEST_CDP);
-  const rendererData = process.env.CODEX_PET_TEST_CDP && process.env.CODEX_PET_TEST_DATA
-    ? path.join(path.resolve(process.env.CODEX_PET_TEST_DATA), 'renderer')
-    : path.join(app.getPath('appData'), 'CodexPet', 'renderer');
+  const rendererData = path.join(app.getPath('appData'), 'CodexPet', 'renderer');
   fs.mkdirSync(rendererData, { recursive: true });
   app.setPath('userData', rendererData);
   require('./backend/runtime/electron-helper/main.js');
 } else {
-  const testRun = !!(process.env.CODEX_PET_TEST_CDP && process.env.CODEX_PET_TEST_DATA);
-  const userRoot = testRun ? path.join(path.resolve(process.env.CODEX_PET_TEST_DATA), 'profile') : path.join(app.getPath('appData'), 'CodexPet');
+  const userRoot = path.join(app.getPath('appData'), 'CodexPet');
   fs.mkdirSync(userRoot, { recursive: true });
   app.setPath('userData', userRoot);
-  const data = process.env.CODEX_PET_TEST_CDP && process.env.CODEX_PET_TEST_DATA ? path.resolve(process.env.CODEX_PET_TEST_DATA) : path.join(userRoot, 'data');
+  const data = path.join(userRoot, 'data');
   fs.mkdirSync(data, { recursive: true });
   const locked = app.requestSingleInstanceLock();
   if (!locked) app.quit();
@@ -33,11 +29,12 @@ if (process.env.CODEX_PET_FRAMES) {
   else run();
 
   function run() {
-    let panel, tray, child, desktopGuard, quitting = false, visible = true;
+    let panel, tray, child, quitting = false, visible = true;
     let base, phase = '正在启动桌宠…', backendReady = false;
     const token = randomBytes(32).toString('hex');
     const headers = { Authorization: 'Bearer ' + token };
     const control = path.join(data, 'visibility.json');
+    try { visible = JSON.parse(fs.readFileSync(control, 'utf8')).visible !== false; } catch {}
     const backend = path.join(root, 'backend');
     const log = fs.createWriteStream(path.join(userRoot, 'app.log'), { flags: 'a' });
     let pendingLog = '';
@@ -190,7 +187,6 @@ if (process.env.CODEX_PET_FRAMES) {
         { label: '打开 Codex', click: () => { void openCodex().catch(error => { showPanel(); phase = error.message; }); } },
         { label: visible ? '隐藏桌宠' : '显示桌宠', click: () => setVisible(!visible) },
         { type: 'separator' },
-        { label: '查询账号额度（可选）', click: () => { showPanel(); void request('/dsh-pet-7340/balance', 'POST').catch(() => {}); } },
         { label: '碎碎念 · 来一句', click: () => { setVisible(true); void request('/dsh-pet-7340/whisper?pet=main', 'POST').catch(() => {}); } },
         { type: 'separator' },
         { label: '编辑语录', click: () => shell.openPath(path.join(data, 'quotes.json')) },
@@ -202,7 +198,6 @@ if (process.env.CODEX_PET_FRAMES) {
       quitting = true;
       try { if (backendReady) await fetch(base + '/shutdown', { method: 'POST', headers, signal: AbortSignal.timeout(1500) }); } catch {}
       if (child && child.exitCode === null) child.kill();
-      desktopGuard?.kill();
       tray?.destroy(); log.end(); app.quit();
     }
     app.on('second-instance', (_event, args) => { if (args.includes('--quit')) void quitApp(); else showPanel(); });
@@ -210,18 +205,36 @@ if (process.env.CODEX_PET_FRAMES) {
     app.on('window-all-closed', () => {});
     app.whenReady().then(() => {
       try { migrate(); } catch (error) { dialog.showErrorBox('桌宠暂时无法启动', error.message); quitting = true; log.end(); app.quit(); return; }
-      setVisible(true);
-      desktopGuard = spawn(path.join(root, 'DesktopBridge.exe'), [String(process.pid), path.join(data, 'fullscreen.json')], {windowsHide:true,stdio:'ignore'});
-      desktopGuard.on('error',()=>{});
+      setVisible(visible);
       tray = new Tray(icon); tray.setToolTip('Codex-dafeiyu'); tray.on('click', showPanel); updateTray();
       ipcMain.handle('pet:status', async () => {
         try {
           const result = await request('/dsh-pet-7340/state');
-          return { ready: true, visible, balance: result.sections.balance.data, work: result.sections.workStatus.data };
+          return { ready: true, visible, work: result.sections.workStatus.data };
         } catch { return { ready: false, visible, message: phase }; }
       });
       ipcMain.handle('pet:action', async (_event, action, message) => {
         try {
+        if (action === 'pet-size-state') return await request('/dsh-pet-7340/pet-size');
+        if (action === 'pet-size-save') {
+          if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '大小配置仅允许从管理面板操作' };
+          return await request('/dsh-pet-7340/pet-size', 'POST', { size: message?.size });
+        }
+        if (action === 'characters-state') return await request('/dsh-pet-7340/characters');
+        if (['characters-select', 'characters-folder', 'characters-behavior', 'characters-import-existing'].includes(action)) {
+          if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '形象配置仅允许从管理面板操作' };
+          if (action === 'characters-behavior') return await request('/dsh-pet-7340/characters', 'POST', { action: 'behavior', behavior: message });
+          if (action === 'characters-import-existing') return await request('/dsh-pet-7340/characters', 'POST', { action: 'import-existing' });
+          if (action === 'characters-select') {
+            if (!['dafeiyu', 'bailong'].includes(message?.id)) return { ok: false, message: '无效形象' };
+            const chat = await request('/dsh-pet-7340/pet-chat');
+            if (chat.pending) return { ok: false, message: '请等待当前聊天回复完成后再切换形象' };
+            return await request('/dsh-pet-7340/characters', 'POST', { action: 'select', id: message.id, ...(message.source !== undefined ? { source: message.source } : {}) });
+          }
+          const picked = await dialog.showOpenDialog(panel, { title: '选择解压后的 BailongPet 文件夹', properties: ['openDirectory'] });
+          if (picked.canceled || !picked.filePaths.length) return { ok: true, canceled: true };
+          return await request('/dsh-pet-7340/characters', 'POST', { action: 'register', root: picked.filePaths[0] });
+        }
         if (action === 'open-codex') { await openCodex(); return {ok:true}; }
         if (action === 'chat-state') return await request('/dsh-pet-7340/pet-chat');
         if (action === 'reminders-state') return await request('/dsh-pet-7340/reminders');
@@ -243,7 +256,7 @@ if (process.env.CODEX_PET_FRAMES) {
         }
         if (action === 'chat') return await request('/dsh-pet-7340/chat?pet=main','POST',{text:String(message ?? '').slice(0,2000)});
         if (action === 'toggle') { setVisible(!visible); return { ok: true }; }
-        if (action === 'quota') return await request('/dsh-pet-7340/balance', 'POST');
+        if (action === 'quota') return { ok: false, message: 'Codex 账号额度查询已关闭，不影响其他联动。' };
         if (action === 'quote') return await request('/dsh-pet-7340/whisper?pet=main', 'POST');
         if (action === 'quotes') return { ok: !(await shell.openPath(path.join(data, 'quotes.json'))) };
         if (action === 'settings') return { ok: !(await shell.openPath(path.join(data, 'dsh-pet', 'main-config.jsonc'))) };

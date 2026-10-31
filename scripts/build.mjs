@@ -2,7 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { root, pkg, requireWindows, outputDirectory, run } from './common.mjs';
+import { checkBundledBailong } from './check-bailong.mjs';
 const require = createRequire(import.meta.url);
 export async function build(base = '.runtime') {
   requireWindows();
@@ -13,7 +15,10 @@ export async function build(base = '.runtime') {
   catch { await run(process.execPath, [path.join(root, 'node_modules/electron/install.js')]); }
   const actualElectron = (await fs.readFile(path.join(electronDist, 'version'), 'utf8')).trim();
   if (actualElectron !== pkg.devDependencies.electron) throw new Error('Electron 二进制版本不符，请重新 npm ci。');
-  await run(process.execPath, [path.join(root, 'scripts/check.mjs')]);
+  const integrity = JSON.parse(await fs.readFile(path.join(root, 'scripts/vendor-integrity.json'), 'utf8'));
+  for (const [name, hash] of Object.entries(integrity)) {
+    if (createHash('sha256').update(await fs.readFile(path.join(root, name))).digest('hex') !== hash) throw new Error(name + ': vendored binary checksum mismatch');
+  }
   const out = await outputDirectory(base);
   await fs.rm(out, { recursive: true, force: true });
   await fs.cp(electronDist, out, { recursive: true });
@@ -26,18 +31,20 @@ export async function build(base = '.runtime') {
     if (!relative || entry.dev || entry.link) continue;
     if (!relative.startsWith('node_modules/') || relative.split('/').includes('..')) throw new Error('Invalid dependency path');
     await fs.cp(path.join(root, relative), path.join(dest, relative), { recursive: true,
-      filter: source => path.basename(source) !== 'node_modules' || source === path.join(root, relative) });
+      filter: source => {
+        const name = path.basename(source);
+        if (/^(?:test|tests|__tests__|coverage)$/i.test(name) || /\.(?:test|spec)(?:-d)?\.[cm]?[jt]sx?$/i.test(name)) return false;
+        return name !== 'node_modules' || source === path.join(root, relative);
+      } });
   }
   await fs.copyFile(process.execPath, path.join(dest, 'node.exe'));
   await fs.cp(path.join(root, 'licenses'), path.join(out, 'licenses'), { recursive: true });
-  await fs.cp(path.join(root, 'docs'), path.join(out, 'docs'), { recursive: true });
-  for (const file of ['README.md', 'THIRD_PARTY_NOTICES.md', 'SECURITY.md']) await fs.copyFile(path.join(root, file), path.join(out, file));
+  await fs.copyFile(path.join(root, 'THIRD_PARTY_NOTICES.md'), path.join(out, 'THIRD_PARTY_NOTICES.md'));
   await fs.copyFile(path.join(root, 'LICENSE'), path.join(out, 'PROJECT-LICENSE.txt'));
-  const releaseReadme = (await fs.readFile(path.join(out, 'README.md'), 'utf8')).replaceAll('](LICENSE)', '](PROJECT-LICENSE.txt)');
-  await fs.writeFile(path.join(out, 'README.md'), releaseReadme);
   await fs.writeFile(path.join(out, 'build-info.json'), JSON.stringify({ version: pkg.version, platform: process.platform, arch: process.arch, node: process.versions.node, electron: actualElectron, source: 'recovered-distribution' }, null, 2) + '\n');
   const { checkPackage } = require(path.join(dest, 'runtime-utils.cjs'));
   checkPackage(dest);
+  await checkBundledBailong(dest);
   console.log('构建完成：' + out);
   return out;
 }

@@ -1,4 +1,6 @@
 import { createReadStream, existsSync, fstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { petSizeState, resizePetConfig } from '../runtime/pet-size.mjs';
+import { applyCharacterConfig, characterFile, characterState, saveCharacter, resolveCharacterAsset, CHARACTER_ASSET_ROOT } from '../runtime/characters.mjs';
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, normalize, resolve, sep } from "node:path";
@@ -518,25 +520,13 @@ function envPositiveInt(value, fallback) {
 
 //#endregion
 //#region src/host/balance/codex.ts
-let pending;
 function queryCodexBalance() {
-	if (pending) return pending;
-	pending = read().finally(() => {
-		pending = void 0;
-	});
-	return pending;
+  // Account quotas are disabled; Codex chat, activity and window integration are independent.
+  return Promise.resolve({
+    ok: false, provider: "codex", reason: "disabled",
+    message: "Codex 账号额度查询已关闭，不影响第三方 API 与其他 Codex 联动。"
+  });
 }
-async function read() {
-	const backend = await import(new URL("../runtime/codex-usage/usage.mjs", import.meta.url).href);
-	const cli = backend.resolveCodexExecutable(process.env.CODEX_PET_CODEX_PATH || process.env.DSH_PET_CODEX_PATH);
-	const cache = await import(new URL("../runtime/quota-cache.mjs", import.meta.url).href);
-	return cache.cachedQuota({
-		file: join(dshHomeDir(), "quota-latest.json"),
-		cli,
-		readUsage: backend.readUsage
-	});
-}
-
 //#endregion
 //#region src/host/balance/deepseek-common.ts
 const DEEPSEEK_FULL_BALANCE = "20";
@@ -1186,6 +1176,7 @@ function configVersion(paths) {
 		} catch {}
 	};
 	bump(paths.userFile);
+	bump(characterFile(dirname(dirname(paths.userFile))));
 	bump(paths.legacyUserFile);
 	for (const file of scanPetFiles(paths.petDir)) bump(file.path);
 	return String(max);
@@ -1431,7 +1422,10 @@ function readAllConfig(paths) {
 		}
 		out[file.prefix] = mergeEntry(filePetBase, parsed, file.prefix + "-config.json", basePets, seenIds);
 	}
-	return out;
+	const merged = applyCharacterConfig(out, dirname(dirname(paths.userFile)));
+	for (const conf of Object.values(merged))
+		for (const pet of conf?.pets || []) pet.balanceEnabled = false;
+	return merged;
 }
 function flattenPetList(merged) {
 	const out = [];
@@ -2851,6 +2845,10 @@ function apply(ctx) {
 		} : v;
 		try {
 			const sel = ctx.agentDefaultModel.currentSelection();
+			if (sel.provider === "codex") {
+				state.writeSection("balance", mark(await queryCodexBalance()));
+				return;
+			}
 			const result = await queryBalance(
 				sel.provider,
 				async (ref) => {
@@ -2907,7 +2905,8 @@ function apply(ctx) {
 		try {
 			return effectivePetList().filter((p) => isDesktopVisible(p.display)).map((p) => ({
 				id: String(p.id),
-				size: Number(p.size)
+				size: Number(p.size),
+				character: p.character ? { geometry: p.character.geometry } : undefined
 			}));
 		} catch {
 			return [];
@@ -3052,6 +3051,32 @@ function apply(ctx) {
 	const handlePetRoute = async (rawUrl, method, body) => {
 		const url = new URL(rawUrl, "http://localhost");
 		const rest = decodeURIComponent(url.pathname.slice(ROUTE_PREFIX.length + 1));
+		if (rest === "pet-size") {
+			if (method === "GET") return { kind: "json", status: 200, obj: petSizeState(readAllConfig(configPaths)) };
+			if (method !== "POST") return { kind: "json", status: 405, obj: { ok: false, message: "method not allowed" } };
+			if (userConfigUnparsable(configPaths)) return { kind: "json", status: 409, obj: { ok: false, message: "配置文件无法解析，请先修复配置；未修改任何内容" } };
+			let clean;
+			try { clean = resizePetConfig(readUserConfig(configPaths), readJsonc(configPaths.defaultFile), JSON.parse(body ?? "")); }
+			catch (error) { return { kind: "json", status: 400, obj: { ok: false, message: error.message } }; }
+			try {
+				mkdirSync(userRoot, { recursive: true });
+				writeFileSync(userConfigPath + ".size-tmp", JSON.stringify(clean, null, 2) + "\n", "utf8");
+				renameSync(userConfigPath + ".size-tmp", userConfigPath);
+			} catch { return { kind: "json", status: 500, obj: { ok: false, message: "保存大小失败，请检查配置文件是否可写" } }; }
+			await syncDesktop();
+			return { kind: "json", status: 200, obj: petSizeState(readAllConfig(configPaths)) };
+		}
+		if (rest === "characters") {
+			if (method === "GET") return { kind: "json", status: 200, obj: characterState(dshHomeDir()) };
+			if (method !== "POST") return { kind: "json", status: 405, obj: { ok: false, message: "method not allowed" } };
+			let input;
+			try { input = JSON.parse(body ?? ""); } catch { return { kind: "json", status: 400, obj: { ok: false, message: "invalid JSON" } }; }
+			const { conversationBusy } = await import("../runtime/pet-conversations.mjs");
+			if (input?.action !== "behavior" && conversationBusy(dshHomeDir())) return { kind: "json", status: 409, obj: { ok: false, message: "请等待当前聊天回复完成后再切换角色或素材文件夹" } };
+			const result = saveCharacter(dshHomeDir(), input);
+			if (result.ok && input?.action !== "behavior") await syncDesktop();
+			return { kind: "json", status: result.ok ? 200 : 400, obj: result };
+		}
 		if (rest === "manager") {
 			if (method !== "POST") return {
 				kind: "json",
@@ -3724,6 +3749,10 @@ function apply(ctx) {
 			status: 400,
 			body: "dsh-pet: unsupported animation format (expected .webm or .mov)"
 		};
+		if (petId === CHARACTER_ASSET_ROOT) {
+			const media = resolveCharacterAsset(dshHomeDir(), fileName);
+			return media ? { kind: "file", file: media, contentType: "video/webm" } : { kind: "text", status: 404, body: "character asset not found" };
+		}
 		const extraAnimDir = resolveAsset(petConfigDir, petId + "-animation");
 		const file = extraAnimDir !== void 0 && existsSync(extraAnimDir) ? resolveExisting(extraAnimDir, fileName) : resolveExisting(userRootFor(ext), fileName) ?? resolveExisting(assetRootFor(ext), fileName);
 		if (file === void 0) return {

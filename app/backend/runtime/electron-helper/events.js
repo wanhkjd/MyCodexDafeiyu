@@ -140,6 +140,7 @@ PetSprite.prototype.showWhisper = function showWhisper(text, image, animation) {
     this.ackUntil = Date.now() + 3500;
     window.setTimeout(() => this.renderBubble(), 3550);
   }
+  if (animation && this.character) animation = this.resolveAnimation(animation);
   const pool = this.animations.events?.whisper;
   if (!pool || pool.length === 0) {
     console.error('[dsh-pet] 配置缺少 animations.events.whisper，无法播放碎碎念动画');
@@ -229,7 +230,6 @@ function applyBalanceLeaf(leaf) {
   const hit = S.readBalance(leaf);
   if (!hit) return;
   balance = hit.state;
-  window.__dshPetDebug.lastBalanceOk = hit.state && hit.state.ok === true;
   if (hit.state.ok) {
     balanceTick++;
     for (const s of sprites) s.onBalanceTick(hit.state, balanceTick);
@@ -274,6 +274,25 @@ function applyMoodLeaf(leaf) {
   for (const s of sprites) s.setMood(leaf.data);
 }
 
+// Cached/looping media can keep playing after a local pack disappears. Revalidate occasionally,
+// even with the manager closed, and rebuild once instead of leaving a stale character on screen.
+let characterCheckAt = 0;
+async function checkCharacterAvailability() {
+  const sprite = sprites[0];
+  if (!sprite || sprite.characterRecovery || Date.now() - characterCheckAt < 1000) return;
+  characterCheckAt = Date.now();
+  try {
+    const response = await fetch(BASE + '/characters');
+    if (!response.ok) return;
+    const state = await response.json();
+    if (state.ok) for (const pet of sprites) pet.setBehavior(state.behavior);
+    if (state.ok && state.active !== (sprite.character?.id || 'dafeiyu')) {
+      sprite.characterRecovery = true;
+      sprite.reloadDesktop();
+    }
+  } catch { /* A transient backend error is not evidence of a missing pack. */ }
+}
+
 /** 跑一拍 /state（1s 定时与「前端动作后立刻刷新」共用同一份实现） */
 async function pollStateOnce() {
   try {
@@ -316,6 +335,7 @@ function startLoops() {
 
   // 统一轮询：1s 一拍（余额数据由 host 定时器刷新后写进 S，这里只读）
   const stateLoop = async () => {
+    await checkCharacterAvailability();
     await pollStateOnce();
     setTimeout(() => void stateLoop(), 1000);
   };

@@ -15,6 +15,7 @@ export function readUserSummary(home=process.env.CODEX_HOME||join(homedir(),'.co
  }catch{return {available:false,text:'',source:'未找到 Codex 的个人记忆摘要'};}
 }
 const stores=new Map();
+export const conversationBusy = dir => stores.get(dir)?.isBusy() === true;
 export function conversations(dir,generate){
  if(stores.has(dir))return stores.get(dir);
  // Pick the model per message so switching it in the manager window applies without a restart.
@@ -72,10 +73,10 @@ export function conversations(dir,generate){
    const result=await reply(text,history,dir,{mode:data.mode,memory:data.useMemory?profile().text:'',persona:persona.buildPersona(settings,{provider:providerOf()}),state:[now,material].filter(Boolean).join('\n\n'),onDelta:delta=>{pending.text+=String(delta??'');}});
    if(!result.ok){user.error=result.message||'回复失败';save();return result;}
    // Action tags never reach the history or the bubble; the pet just does the action.
-   const taken=persona.takeAction(result.text);
-   session.messages.push({role:'assistant',content:taken.text,model:result.model,ts:Date.now()});
+   const taken=persona.takeAction(result.text, Math.random, settings.character);
+   session.messages.push({role:'assistant',content:taken.text,model:result.model,ts:Date.now(),character:settings.character||'dafeiyu',characterName:settings.name||'大肥鱼'});
    save();return {...result,text:taken.text,action:settings.actions?taken.action:null,animation:settings.actions?taken.animation:null};
   }catch(e){user.error=e.message;save();return {ok:false,message:e.message};}finally{pending=null;}
  };
- const service={snapshot,command};stores.set(dir,service);return service;
+ const service={snapshot,command,isBusy:()=>!!pending};stores.set(dir,service);return service;
 }

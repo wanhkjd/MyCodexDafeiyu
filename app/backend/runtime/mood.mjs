@@ -308,6 +308,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
     talk: { date: dayKey(new Date(now)), count: 0 },
     moments: { greeted: '', night: '', milestone: 0 },
     quiet: { enabled: false, start: '23:00', end: '08:00' },
+    feeding: { showBowl: true },
     // said: line → when she last said it; bond: today's affection bookkeeping; highlight: today's longest finished task.
     said: {}, bond: { day: dayKey(new Date(now)), start: 50, gained: 0, seen: false, touched: false }, emotions: {}, highlight: null,
   });
@@ -315,6 +316,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
   let errorTimes = [], clickTimes = [], throwTimes = [], wokenAt = -Infinity, jitters = new Map();
   let gained = {}, busy = false, busySince = null, prevState = null, ddl = null, published = '', previousQuote = '';
   let ignored = 0, watchSince = null, lastSayAt = -Infinity, awaySince = null, awayEvents = [], queue = [];
+  let lastFeedAt = -Infinity;
 
   function load() {
     const now = clock();
@@ -329,6 +331,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
       return {
         ...base,
         enabled: raw.enabled !== false,
+        feeding: { showBowl: raw.feeding?.showBowl !== false },
         firstSeen: Math.min(Number.isFinite(raw.firstSeen) ? raw.firstSeen : now, base.firstSeen),
         affection,
         satiety: Number.isFinite(raw.satiety?.value) && Number.isFinite(raw.satiety?.at) ? raw.satiety : base.satiety,
@@ -450,10 +453,10 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
   }
   function publishNow(now = clock()) {
     const mood = db.enabled ? evaluate(now) : null;
-    const key = mood ? `${mood.label}|${bondTier(bondNow())}|${mood.glow || ''}` : 'off';
+    const key = mood ? `${mood.label}|${bondTier(bondNow())}|${mood.glow || ''}|${db.feeding.showBowl}` : 'off';
     if (key === published) return mood;
     published = key;
-    publish(mood ? { enabled: true, label: mood.label, mods: modsFor(mood.label, mood.glow), click: clickFor(mood.label) } : { enabled: false });
+    publish(mood ? { enabled: true, label: mood.label, mods: modsFor(mood.label, mood.glow), click: clickFor(mood.label), feeding: { ...db.feeding, gain: FEED_GAIN } } : { enabled: false });
     return mood;
   }
 
@@ -613,6 +616,11 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
     /** Interaction reported by the pet window, the control game or chat. */
     event(type, now = clock()) {
       if (!EVENTS.includes(type)) return { ok: false, message: '未知互动' };
+      if (type === 'feed') {
+        if (!db.enabled) return { ok: false, message: '请先启用心情系统，再喂米饭。' };
+        if (now - lastFeedAt < 1500) return { ok: false, message: '本鱼还在嚼米饭，稍等一下～' };
+        lastFeedAt = now;
+      }
       rollDay(now);
       const before = db.enabled ? evaluate(now).label : '';
       db.lastInteractionAt = now;
@@ -643,10 +651,21 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
       }
       if (type === 'feed') {
         db.satiety = { value: Math.min(100, satietyAt(db.satiety, now) + FEED_GAIN), at: now };
-        feel('joy', 50, '刚被你投喂', now);
+        db.lastMeal = { id: 'rice', name: '米饭', at: now };
+        const date = new Date(now), minute = date.getHours() * 60 + date.getMinutes();
+        // A hand-fed bowl during a meal window counts as that meal; don't auto-feed again immediately.
+        const meal = MEALS.find(m => minute >= m.start && minute < m.end);
+        if (meal) {
+          if (!db.meals.eaten.includes(meal.id)) db.meals.eaten.push(meal.id);
+          db.meals.missed = db.meals.missed.filter(id => id !== meal.id);
+        }
+        feel('joy', 50, '刚吃了你喂的大米饭', now);
+        if (inQuietHours(db.quiet, date)) play('吃白饭');
+        else speak({ text: '啊呜，米饭香香！谢谢你喂本鱼～', animation: '吃白饭' }, now);
+        save();
       }
       publishNow(now);
-      return { ok: true };
+      return type === 'feed' ? { ...this.view(now), message: '已喂一碗米饭，饱腹 +15（最多 100），亲密按日常规则增加。' } : { ok: true };
     },
     /** Codex activity snapshot ({state}) from the local activity monitor. */
     activity(snapshot, now = clock()) {
@@ -736,6 +755,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
         meals: MEALS.map(m => ({ name: m.name, eaten: db.meals.eaten.includes(m.id), missed: db.meals.missed.includes(m.id), passed: minute >= m.end })),
         talk: { today: db.talk.date === dayKey(date) ? db.talk.count : 0, limit: TALK_LIMIT, ignored },
         quiet: { ...db.quiet, active: inQuietHours(db.quiet, date) },
+        feeding: { ...db.feeding, gain: FEED_GAIN },
         festival: festivalOf(date)?.name || '',
         // Minutes the current Codex task has been running (null when idle), for her 「此刻」 in chat.
         codex: busy && busySince !== null ? Math.max(1, Math.round((now - busySince) / MIN)) : null,
@@ -757,12 +777,16 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
       publishNow(now);
     },
     command(body, now = clock()) {
+      if (body?.action === 'feed') return this.event('feed', now);
       if (body?.action !== 'settings') return { ok: false, message: '未知操作' };
+      if (body.feeding !== undefined && typeof body.feeding?.showBowl !== 'boolean')
+        return { ok: false, message: '饭碗显示设置无效' };
       if (body.quiet !== undefined) {
         const q = body.quiet;
         if (!q || typeof q.enabled !== 'boolean' || !TIME.test(q.start) || !TIME.test(q.end)) return { ok: false, message: '安静时段请填写 00:00～23:59 之间的时间' };
         db.quiet = { enabled: q.enabled, start: q.start, end: q.end };
       }
+      if (body.feeding !== undefined) db.feeding = { showBowl: body.feeding.showBowl };
       if (typeof body.enabled === 'boolean') db.enabled = body.enabled;
       dirty = true;
       save();

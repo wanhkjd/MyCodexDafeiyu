@@ -1,0 +1,448 @@
+{
+  "idle": {
+    "id": "idle",
+    "name": "idle",
+    "durationMs": 4000,
+    "renderScale": 1,
+    "renderOffset": [
+      0,
+      0
+    ],
+    "renderAnchor": "bottom-center",
+    "file": "透明WebM/idle.webm"
+  },
+  "additionalIdleAnimations": [
+    {
+      "id": "idle2",
+      "name": "待机动作2",
+      "durationMs": 4000,
+      "renderScale": 1.0049342105263157,
+      "renderOffset": [
+        0.0013923154239766373,
+        0.004523026315789499
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/idle2.webm"
+    },
+    {
+      "id": "idle03",
+      "name": "待机动作03 · 翻绘本",
+      "durationMs": 6042,
+      "renderScale": 1.0183333333333333,
+      "renderOffset": [
+        -0.000012731481481509377,
+        0.013951388888888916
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/idle03.webm"
+    },
+    {
+      "id": "idle04",
+      "name": "待机动作04 · 贴贴枕头",
+      "durationMs": 6042,
+      "renderScale": 1.0149501661129567,
+      "renderOffset": [
+        0.0013992709486895238,
+        0.01368355481727579
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/idle04.webm"
+    },
+    {
+      "id": "idle05",
+      "name": "待机动作05 · 玩掌机",
+      "durationMs": 7042,
+      "renderScale": 1.0149501661129567,
+      "renderOffset": [
+        0.0013992709486895238,
+        0.01368355481727579
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/idle05.webm"
+    },
+    {
+      "id": "idle06",
+      "name": "待机动作06 · 贴尾巴",
+      "durationMs": 7042,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        0.001396937086092731,
+        0.010607523914643036
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/idle06.webm"
+    }
+  ],
+  "variants": [
+    {
+      "id": "01",
+      "name": "招手/打招呼",
+      "durationMs": 4000,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        0.00139693708609272,
+        0.01343359087564377
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/01.webm"
+    },
+    {
+      "id": "04",
+      "name": "灵感",
+      "durationMs": 4000,
+      "renderScale": 1.0082508250825082,
+      "renderOffset": [
+        0.0027949669966996597,
+        0.007563256325632513
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/04.webm"
+    },
+    {
+      "id": "05",
+      "name": "得意",
+      "durationMs": 4000,
+      "renderScale": 0.9791666666666666,
+      "renderOffset": [
+        0.0034143518518518256,
+        -0.019097222222222224
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/05.webm"
+    },
+    {
+      "id": "08",
+      "name": "贴贴",
+      "durationMs": 4000,
+      "renderScale": 1.0183333333333333,
+      "renderOffset": [
+        -0.0007199074074073843,
+        0.011148148148148114
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/08.webm"
+    },
+    {
+      "id": "09",
+      "name": "傲娇",
+      "durationMs": 4000,
+      "renderScale": 1.0049342105263157,
+      "renderOffset": [
+        -0.000003426535087748385,
+        0.010105994152046726
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/09.webm"
+    },
+    {
+      "id": "13",
+      "name": "小生气",
+      "durationMs": 4000,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        0.00139693708609272,
+        0.010623620309050825
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/13.webm"
+    },
+    {
+      "id": "14",
+      "name": "困倦",
+      "durationMs": 4000,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        0.00139693708609272,
+        0.010623620309050825
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/14.webm"
+    },
+    {
+      "id": "17",
+      "name": "偷吃",
+      "durationMs": 5042,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        -0.0014130334805003697,
+        0.010607523914643036
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/17.webm"
+    },
+    {
+      "id": "18",
+      "name": "庆祝",
+      "durationMs": 4000,
+      "renderScale": 1.0082508250825082,
+      "renderOffset": [
+        -0.000005729739640653659,
+        0.010363953061972906
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/18.webm"
+    },
+    {
+      "id": "20",
+      "name": "比心",
+      "durationMs": 4000,
+      "renderScale": 1.0183333333333333,
+      "renderOffset": [
+        0.002815972222222185,
+        0.013951388888888916
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/20.webm"
+    },
+    {
+      "id": "21",
+      "name": "龙族契约",
+      "durationMs": 4042,
+      "renderScale": 0.9760383386581469,
+      "renderOffset": [
+        0.002727857649982235,
+        -0.011086705715299905
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/21.webm"
+    },
+    {
+      "id": "22",
+      "name": "眷属印记",
+      "durationMs": 4000,
+      "renderScale": 1.0082508250825082,
+      "renderOffset": [
+        -0.000005729739640653659,
+        0.010363953061972906
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/22.webm"
+    },
+    {
+      "id": "24",
+      "name": "宝藏收藏",
+      "durationMs": 6042,
+      "renderScale": 0.9823151125401929,
+      "renderOffset": [
+        -0.0068093515541264305,
+        -0.0025433190425151464
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/24.webm"
+    },
+    {
+      "id": "25",
+      "name": "幼龙吐息",
+      "durationMs": 4000,
+      "renderScale": 1.001639344262295,
+      "renderOffset": [
+        -0.000001138433515516605,
+        0.0015027322404370757
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/25.webm"
+    },
+    {
+      "id": "26",
+      "name": "逆鳞信任",
+      "durationMs": 4042,
+      "renderScale": 1.0082508250825082,
+      "renderOffset": [
+        0.002794966996699677,
+        0.010352493582691524
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/26.webm"
+    }
+  ],
+  "dragAnimation": {
+    "id": "drag",
+    "name": "拖拽",
+    "durationMs": 4000,
+    "renderScale": 1.0049342105263157,
+    "renderOffset": [
+      -0.003492781432748555,
+      0.007314510233918112
+    ],
+    "renderAnchor": "bottom-center",
+    "file": "透明WebM/drag.webm"
+  },
+  "landingAnimation": {
+    "id": "landing",
+    "name": "落地",
+    "durationMs": 2000,
+    "renderScale": 1.0049342105263157,
+    "renderOffset": [
+      -0.003492781432748555,
+      0.007314510233918112
+    ],
+    "renderAnchor": "bottom-center",
+    "file": "透明WebM/landing.webm"
+  },
+  "quotaAnimation": {
+    "id": "quota",
+    "name": "查阅额度",
+    "durationMs": 4000,
+    "renderScale": 0.9622047244094488,
+    "renderOffset": [
+      0.00002624671916006744,
+      0.0014370078740157054
+    ],
+    "renderAnchor": "bottom-center",
+    "file": "透明WebM/quota.webm"
+  },
+  "workAnimations": [
+    {
+      "id": "work01",
+      "name": "收到任务",
+      "durationMs": 4042,
+      "renderScale": 1.0082508250825082,
+      "renderOffset": [
+        -0.000005729739640636389,
+        0.010352493582691524
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/work01.webm"
+    },
+    {
+      "id": "work02",
+      "name": "处理任务",
+      "durationMs": 6042,
+      "renderScale": 1,
+      "renderOffset": [
+        0,
+        0
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/work02.webm"
+    },
+    {
+      "id": "work03",
+      "name": "整理归档文件",
+      "durationMs": 5042,
+      "renderScale": 1.0183333333333333,
+      "renderOffset": [
+        -0.000012731481481509377,
+        0.013951388888888916
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/work03.webm"
+    },
+    {
+      "id": "work04",
+      "name": "翻阅工作资料",
+      "durationMs": 5042,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        -0.0014130334805003697,
+        0.013417494481236303
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/work04.webm"
+    },
+    {
+      "id": "work05",
+      "name": "放大镜查看细节",
+      "durationMs": 4042,
+      "renderScale": 1.0115894039735098,
+      "renderOffset": [
+        0.001396937086092731,
+        0.010607523914643036
+      ],
+      "renderAnchor": "bottom-center",
+      "file": "透明WebM/work05.webm"
+    }
+  ],
+  "movementAnimations": [
+    {
+      "id": "move02",
+      "name": "跑步（向右）",
+      "durationMs": 11000,
+      "renderScale": 1.0149501661129567,
+      "renderOffset": [
+        0.0013992709486895238,
+        0.01086424880029524
+      ],
+      "renderAnchor": "bottom-center",
+      "sourceFacing": "right",
+      "moveStartMs": 4750,
+      "moveStopMs": 7500,
+      "file": "透明WebM/move02.webm"
+    },
+    {
+      "id": "move02left",
+      "name": "跑步（向左）",
+      "durationMs": 9042,
+      "renderScale": 0.9983660130718954,
+      "renderOffset": [
+        -0.009705201525054385,
+        0.009597403776325342
+      ],
+      "renderAnchor": "bottom-center",
+      "sourceFacing": "left",
+      "moveStartMs": 1917,
+      "moveStopMs": 5250,
+      "file": "透明WebM/move02left.webm"
+    },
+    {
+      "id": "move01left",
+      "name": "走路（向左）",
+      "durationMs": 5042,
+      "renderScale": 1.0149501661129567,
+      "renderOffset": [
+        -0.000010382059800639887,
+        0.01368355481727579
+      ],
+      "renderAnchor": "bottom-center",
+      "sourceFacing": "left",
+      "moveStartMs": 1000,
+      "moveStopMs": 3250,
+      "file": "透明WebM/move01left.webm"
+    },
+    {
+      "id": "move01right",
+      "name": "走路（向右）",
+      "durationMs": 5042,
+      "renderScale": 1.0149501661129567,
+      "renderOffset": [
+        0.0013992709486895238,
+        0.01368355481727579
+      ],
+      "renderAnchor": "bottom-center",
+      "sourceFacing": "right",
+      "moveStartMs": 750,
+      "moveStopMs": 3250,
+      "file": "透明WebM/move01right.webm"
+    },
+    {
+      "id": "move03left",
+      "name": "飞行（向左）",
+      "durationMs": 9100,
+      "renderScale": 1.0183333333333333,
+      "renderOffset": [
+        -0.000012731481481509377,
+        0.013951388888888916
+      ],
+      "renderAnchor": "bottom-center",
+      "sourceFacing": "left",
+      "moveStartMs": 3125,
+      "moveStopMs": 7750,
+      "file": "透明WebM/move03left.webm"
+    },
+    {
+      "id": "move03right",
+      "name": "飞行（向右）",
+      "durationMs": 9100,
+      "renderScale": 1.0183333333333333,
+      "renderOffset": [
+        0.0014016203703703378,
+        0.013951388888888916
+      ],
+      "renderAnchor": "bottom-center",
+      "sourceFacing": "right",
+      "moveStartMs": 3300,
+      "moveStopMs": 7750,
+      "file": "透明WebM/move03right.webm"
+    }
+  ]
+}
