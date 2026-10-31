@@ -4,7 +4,11 @@
 
 当前版本：**v1.5.0**。内置 **大肥鱼** 和 **白龙** 两种形象，切换形象不会更换人格，聊天记录、心情与养成状态共享。
 
-> 本仓库提供源码和运行素材，不包含已安装的依赖或完整便携版。拉取源码后，需要按下方教程安装依赖并启动。Codex 账号额度查询已关闭，其他 Codex 联动保留，并新增 DeepSeek Harness 工作状态联动；聊天可以跟随本机 Codex / CC Switch 配置，也可以单独使用第三方 API。
+**直接使用：[下载 v1.5.0 Windows x64 完整便携版](https://github.com/wanhkjd/MyCodexDafeiyu/releases/download/v1.5.0/Codex-dafeiyu-v1.5.0-windows-x64.zip)** · [发布说明与校验文件](https://github.com/wanhkjd/MyCodexDafeiyu/releases/tag/v1.5.0)
+
+下载完整 ZIP → 全部解压 → 双击 `Codex-dafeiyu.exe`，无需安装 Node.js、npm 或 Git。
+
+> GitHub 的 Code 页面、git clone 和「Source code」ZIP 提供的是源码；可双击启动的完整运行包在 **Releases 的 Assets（附件）** 中。两者用途不同。Codex 账号额度查询已关闭，其他 Codex 联动保留，并新增 DeepSeek Harness 工作状态联动；聊天可以跟随本机 Codex / CC Switch 配置，也可以单独使用第三方 API。
 
 ## 功能介绍
 
@@ -85,7 +89,20 @@
 
 ## 安装与启动
 
-### 方式一：从源码运行
+### 方式一：下载完整便携版（推荐）
+
+1. [下载完整便携 ZIP：Codex-dafeiyu-v1.5.0-windows-x64.zip](https://github.com/wanhkjd/MyCodexDafeiyu/releases/download/v1.5.0/Codex-dafeiyu-v1.5.0-windows-x64.zip)，也可以在 [v1.5.0 发布页](https://github.com/wanhkjd/MyCodexDafeiyu/releases/tag/v1.5.0)的 **Assets（附件）** 中下载。
+2. 将 ZIP **全部解压**到本地目录；不要在压缩包内直接运行，也不要只复制 EXE。
+3. 打开解压后的 `Codex-dafeiyu-v1.5.0-windows-x64` 文件夹，双击 **`Codex-dafeiyu.exe`**。
+
+完整便携版已包含 Electron、Node.js、运行依赖、大肥鱼与白龙素材和 Harness 桥接插件，不需要另装 Node.js、npm 或 Git。要求 **Windows x64**；请保留同目录的 DLL、`resources`、`locales` 等运行文件。
+
+- **不是源码 ZIP**：不要下载 GitHub 自动生成的「Source code (zip) / (tar.gz)」来寻找 EXE。
+- **不是账号共享包**：不包含发布者的 API Key、登录凭据、聊天记录或个人设置。基础桌宠无需 Key；联网聊天按下方说明使用自己的配置。
+- **联动软件需自行安装**：Codex 和 DeepSeek Harness 主程序不在便携包内。使用 Harness 状态联动时，按上方「首次接入 Harness」在自己的电脑安装桥接；无需另找或下载 `harness-bridge`。
+- 可选校验：从发布页下载同名 `.zip.sha256` 文件，在 PowerShell 执行 `Get-FileHash .\Codex-dafeiyu-v1.5.0-windows-x64.zip -Algorithm SHA256`，将结果与校验文件中的值比较。
+
+### 方式二：从源码运行（开发者）
 
 #### 1. 准备环境
 
@@ -130,16 +147,6 @@ npm start
 ```
 
 启动脚本会先构建本地运行目录，再打开桌宠。**第一次运行基础桌宠功能不需要填写 API Key**；使用聊天等模型功能时，再按照下一节配置。
-
-### 方式二：使用完整便携版
-
-如果仓库维护者已经在 [GitHub Releases](https://github.com/wanhkjd/MyCodexDafeiyu/releases) 提供 Windows x64 便携 ZIP：
-
-1. 下载完整的 `Codex-dafeiyu-v<版本>-windows-x64.zip`，不要将 GitHub 的“Source code”压缩包当作便携版。
-2. 解压到本地目录，保留所有文件及 `resources` 等子目录。
-3. 双击 `Codex-dafeiyu.exe` 启动。
-
-完整便携版自带运行环境，不需要另装 Node.js、npm 或 Git。**不要只复制 EXE，也不要在压缩包内直接运行。** 如果 Releases 没有提供便携版，请使用源码方式或自行打包。
 
 ## 首次配置大模型
 
