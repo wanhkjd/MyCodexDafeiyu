@@ -875,6 +875,11 @@ app.whenReady().then(() => {
   // 拖拽持有完整输入租约；菜单/对话则由 inputRegions 把交互限制在实际控件矩形内。
   // 只存标记、不直接翻转窗口——**唯一出口**仍是 setWindowIgnore（在兜底轮询里按完整规则判定），
   // 否则会出现"两条通道抢着翻同一个窗口"的竞态。
+  ipcMain.on('pet:open-harness', async (event) => {
+    try {
+      await require('../../../integrations-control.cjs').openHarness(process.env.DSH_HOME);
+    } catch (error) { event.sender.send('pet:launch-error', error.message); }
+  });
   ipcMain.on('pet:open-codex', () => {
     if(process.env.CODEX_PET_DESKTOP_BRIDGE) require('node:child_process').execFile(process.env.CODEX_PET_DESKTOP_BRIDGE, ['--open-codex',process.env.CODEX_PET_APP_PATH || 'OpenAI.Codex_2p2nqsd0c76g0!App'], {windowsHide:true}, error => {
       if(error) console.warn('[codex-pet] 无法打开 Codex，请检查安装或设置 CODEX_PET_APP_PATH');

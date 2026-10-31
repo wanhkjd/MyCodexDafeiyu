@@ -53,7 +53,8 @@ function upgradeQuotes(root, data) {
 }
 
 function checkPackage(root, { source = false } = {}) {
-  const required = ['node.exe','backend-entry.mjs','DesktopBridge.exe','backend/lib/standalone.js',
+  const required = ['windows-activation.cjs','integrations-control.cjs','integrations-panel.js','backend/runtime/harness-activity.mjs','backend/runtime/work-activity.mjs','backend/runtime/codex-activity.mjs',
+    'integrations/harness-bridge/index.mjs','integrations/harness-bridge/package.json','integrations/harness-bridge/cordis.patch.yml','node.exe','backend-entry.mjs','DesktopBridge.exe','backend/lib/standalone.js',
     'backend/assets/config.jsonc','backend/runtime/electron-helper/main.js','assets/icon.ico',
     'pet-size-panel.js','backend/runtime/pet-size.mjs','character-panel.js','backend/runtime/characters.mjs','backend/runtime/electron-helper/flight-motion.js',
     'backend/assets/characters/bailong/ASSETS.md','backend/assets/characters/bailong/outputs/白龙桌宠素材/素材清单.json',

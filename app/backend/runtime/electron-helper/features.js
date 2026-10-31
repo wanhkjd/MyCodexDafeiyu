@@ -9,6 +9,7 @@
     const response=await fetch(BASE+route,{method:payload?'POST':'GET',cache:'no-store',...(payload?{headers:{'content-type':'application/json'},body:JSON.stringify(payload)}:{})});
     const result=await response.json();if(!response.ok||result.ok===false)throw new Error(result.message||'暂时连接不上后台');return result;
   }
+  window.petBridge?.onLaunchError(message => sprites[0]?.showWhisper(message));
   window.showPetReminders=s=>{call('/manager',{}).catch(()=>s.showWhisper('管理窗口暂时打不开，请从托盘打开。'));};
   window.startPetControl=s=>{
     s.closeMenu();s.stopMove();s.stopThrow();

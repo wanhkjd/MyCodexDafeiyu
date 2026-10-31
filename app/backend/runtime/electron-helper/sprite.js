@@ -1440,6 +1440,7 @@ class PetSprite {
       { label: 'DDL 提醒 · 便签', action: 'reminders' },
       ...(!this.character ? [{ label: '控制大肥鱼 · WASD / 扔白饭', action: 'control' }] : []),
       { label: '打开 Codex', action: 'open-codex' },
+      { label: '打开 DeepSeek Harness', action: 'open-harness' },
       { label: '回到初始位置', action: 'home' },
       // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置 + 宿主重载生效。
       // 与浏览器端注入的是**同一份**子菜单（shared 的 displayMenuBranch），两端文案/取值不会漂移。
@@ -1482,6 +1483,7 @@ class PetSprite {
     if (leaf.action === 'control') { window.startPetControl?.(this); return; }
     if (leaf.action === 'reminders') { window.showPetReminders?.(this); return; }
     if (!leaf || typeof leaf !== 'object') return;
+    if (leaf.action === 'open-harness') { window.petBridge?.openHarness(); return; }
     if (leaf.action === 'open-codex') { S.postAction(BASE + '/ack').then(()=>pollStateNow()).catch(()=>{}); window.petBridge?.openCodex(); return; }
     if (leaf.action === 'open-site') {
       if (window.petBridge) window.petBridge.openDshSite(ORIGIN); // 系统默认浏览器打开（等效 Ctrl+点击链接）

@@ -3,6 +3,7 @@ async function refresh() {
   try {
     const state=await window.pet.status();
     el('activity').textContent=state.ready ? state.work?.task || '暂时没有任务，在这里陪你～' : state.message;
+    window.dispatchEvent(new CustomEvent('pet-integrations', { detail: state.integrations }));
     el('visibility').textContent=state.visible?'隐藏桌宠':'显示桌宠';
     return state;
   } catch { el('activity').textContent='暂时无法连接桌宠'; }

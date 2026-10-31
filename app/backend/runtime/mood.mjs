@@ -1,5 +1,5 @@
 // Mood engine for the desktop pet: local rules only (no model calls, no network, no diary).
-// Inputs: local clock, Codex activity, reminders, user presence and interactions with the pet.
+// Inputs: local clock, Codex / Harness activity, reminders, user presence and interactions with the pet.
 // Outputs: a mood label with a plain-language reason, animation weight modifiers and mood-aware quotes,
 // plus restraint: when she may talk, how often, and the few moments worth speaking up for.
 // Phase 3: lines take turns, whisper gaps vary, affection grows day by day into tiers that unlock lines,
@@ -202,7 +202,7 @@ export function computeMood(input) {
   if (hour >= 2 && hour < 6 && away) return result('睡着', '夜深了，你也不在，本鱼先睡会儿');
   const annoyed = active('annoyed');
   if (annoyed) return result('傲娇', annoyed.reason);
-  if (errors.length >= 3) return result('担心', `最近 30 分钟 Codex 失败了 ${errors.length} 次`);
+  if (errors.length >= 3) return result('担心', `最近 30 分钟工作任务失败了 ${errors.length} 次`);
   if (ddl?.overdue) return result('担心', `「${ddl.title}」已经过了截止时间`);
   if (ddl && ddl.dueAt - now <= 2 * HOUR) return result('担心', `「${ddl.title}」还剩 ${formatSpan(ddl.dueAt - now)}`);
   const happy = active('proud') || active('joy');
@@ -314,7 +314,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
   });
   let db = load(), dirty = false, timer = null, flushTimer = null;
   let errorTimes = [], clickTimes = [], throwTimes = [], wokenAt = -Infinity, jitters = new Map();
-  let gained = {}, busy = false, busySince = null, prevState = null, ddl = null, published = '', previousQuote = '';
+  let gained = {}, busy = false, busySince = null, prevState = null, workSource = null, ddl = null, published = '', previousQuote = '';
   let ignored = 0, watchSince = null, lastSayAt = -Infinity, awaySince = null, awayEvents = [], queue = [];
   let lastFeedAt = -Infinity;
 
@@ -667,8 +667,9 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
       publishNow(now);
       return type === 'feed' ? { ...this.view(now), message: '已喂一碗米饭，饱腹 +15（最多 100），亲密按日常规则增加。' } : { ok: true };
     },
-    /** Codex activity snapshot ({state}) from the local activity monitor. */
+    /** Codex / Harness activity snapshot ({state}) from the local activity monitor. */
     activity(snapshot, now = clock()) {
+      workSource = snapshot?.source || null;
       const state = snapshot?.state ?? null;
       busy = state !== null && state !== 'success' && state !== 'error';
       if (state === prevState) return;
@@ -758,6 +759,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
         feeding: { ...db.feeding, gain: FEED_GAIN },
         festival: festivalOf(date)?.name || '',
         // Minutes the current Codex task has been running (null when idle), for her 「此刻」 in chat.
+        workSource,
         codex: busy && busySince !== null ? Math.max(1, Math.round((now - busySince) / MIN)) : null,
       };
     },

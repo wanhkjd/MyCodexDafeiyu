@@ -125,7 +125,7 @@ export function describeState(view, now = Date.now()) {
     `精力 ${view.energy}/100，饱腹 ${view.satiety}/100`,
     meals && `今天的饭：${meals}`,
     `你和用户：认识第 ${view.days} 天${view.tier ? `，亲密度「${view.tier}」` : ''}`,
-    `Codex：${view.codex ? `正在跑任务，已经 ${minutesText(view.codex)}` : '空闲'}`,
+    `工作联动（${view.workSource || 'Codex／Harness'}）：${view.codex ? `正在跑任务，已经 ${minutesText(view.codex)}` : '空闲'}`,
   ].filter(Boolean).join('\n');
 }
 

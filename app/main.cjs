@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, shell, dialog, safeStorage, powerMonitor } = require('electron');
 const fs = require('node:fs');
+const integrations = require('./integrations-control.cjs');
 const path = require('node:path');
 const { spawn, execFile } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
@@ -184,6 +185,7 @@ if (process.env.CODEX_PET_FRAMES) {
       if (!tray) return;
       tray.setContextMenu(Menu.buildFromTemplate([
         { label: '打开管理窗口', click: showPanel },
+        { label: '打开 DeepSeek Harness', click: () => { void integrations.openHarness(data).catch(error => { showPanel(); phase = error.message; }); } },
         { label: '打开 Codex', click: () => { void openCodex().catch(error => { showPanel(); phase = error.message; }); } },
         { label: visible ? '隐藏桌宠' : '显示桌宠', click: () => setVisible(!visible) },
         { type: 'separator' },
@@ -210,7 +212,7 @@ if (process.env.CODEX_PET_FRAMES) {
       ipcMain.handle('pet:status', async () => {
         try {
           const result = await request('/dsh-pet-7340/state');
-          return { ready: true, visible, work: result.sections.workStatus.data };
+          return { ready: true, visible, work: result.sections.workStatus.data, integrations: result.sections.integrations?.data };
         } catch { return { ready: false, visible, message: phase }; }
       });
       ipcMain.handle('pet:action', async (_event, action, message) => {
@@ -236,6 +238,20 @@ if (process.env.CODEX_PET_FRAMES) {
           return await request('/dsh-pet-7340/characters', 'POST', { action: 'register', root: picked.filePaths[0] });
         }
         if (action === 'open-codex') { await openCodex(); return {ok:true}; }
+        if (action === 'open-harness') { await integrations.openHarness(data); return {ok:true}; }
+        if (action === 'integrations-state') return { ok:true, config:integrations.readConfig(data), installed:integrations.installed(data), registeredPath:integrations.registeredHarness() };
+        if (action === 'integrations-save') return { ok:true, config:integrations.saveConfig(data,message) };
+        if (action === 'harness-install') return integrations.installBridge({root,home:data,userRoot});
+        if (action === 'harness-exe') {
+          const picked=await dialog.showOpenDialog(panel,{title:'选择 DeepSeek Harness 软件',properties:['openFile'],filters:[{name:'Windows 软件',extensions:['exe']}]});
+          if(picked.canceled)return {ok:true,canceled:true};
+          return {ok:true,config:integrations.saveConfig(data,{harnessPath:picked.filePaths[0]})};
+        }
+        if (action === 'harness-profile') {
+          const picked=await dialog.showOpenDialog(panel,{title:'选择 Harness Profile（通常为 .dsh/profiles/desktop）',properties:['openDirectory']});
+          if(picked.canceled)return {ok:true,canceled:true};
+          return {ok:true,config:integrations.saveConfig(data,{profile:picked.filePaths[0]})};
+        }
         if (action === 'chat-state') return await request('/dsh-pet-7340/pet-chat');
         if (action === 'reminders-state') return await request('/dsh-pet-7340/reminders');
         if (action === 'reminders-command') return await request('/dsh-pet-7340/reminders','POST',message);
@@ -275,7 +291,7 @@ if (process.env.CODEX_PET_FRAMES) {
           }
         }catch{}
       },500);managerTimer.unref();
-      const env = { ...backendEnvironment(), DSH_HOME: data, DSH_PET_ELECTRON_PATH: process.execPath,
+      const env = { ...backendEnvironment(), DSH_HOME: data, CODEX_PET_HARNESS_HOME: process.env.DSH_HOME || '', DSH_PET_ELECTRON_PATH: process.execPath,
         DSH_PET_ICON: icon, CODEX_PET_DESKTOP_BRIDGE:path.join(root,'DesktopBridge.exe'), CODEX_PET_HELPER: '1', CODEX_PET_CONTROL: control, CODEX_PET_MANAGER_PID: String(process.pid), CODEX_PET_HTTP_TOKEN: token };
       delete env.ELECTRON_RUN_AS_NODE;
       child = spawn(path.join(root, 'node.exe'), [path.join(root, 'backend-entry.mjs')], { env, cwd: backend, windowsHide: true, stdio: ['pipe','pipe','pipe'] });

@@ -1,0 +1,3 @@
+- insert:
+    - id: codex-dafeiyu-harness-bridge
+      name: '@codex-dafeiyu/harness-bridge'

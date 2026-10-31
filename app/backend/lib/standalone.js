@@ -2672,32 +2672,29 @@ function apply(ctx) {
 			bili = null;
 		};
 	}, "codex-pet: bili life");
-	if (ctx.agentDefaultModel.currentSelection().provider === "codex") ctx.effect(() => {
-		let disposed$1 = false;
-		let stop;
-		import(new URL("../runtime/codex-activity.mjs", import.meta.url).href).then((module) => {
-			if (disposed$1) return;
-			stop = module.startActivityMonitor((snapshot) => {
-				codexBusy = snapshot.state !== null && snapshot.state !== "success" && snapshot.state !== "error";
-				state.writeSection("workStatus", snapshot);
+	let localActivity = null;
+	let pendingHostActivity = { state: null, task: null };
+	ctx.effect(() => {
+		let disposed = false;
+		import(new URL('../runtime/work-activity.mjs', import.meta.url).href).then((module) => {
+			if (disposed) return;
+			localActivity = module.startWorkActivityMonitor((snapshot) => {
+				codexBusy = snapshot.state !== null && snapshot.state !== 'success' && snapshot.state !== 'error';
+				state.writeSection('workStatus', snapshot);
 				mood?.activity(snapshot);
-			});
-		}).catch(() => console.warn("[codex-pet] 任务状态监听未能启动"));
-		return () => {
-			disposed$1 = true;
-			stop?.();
-		};
-	}, "codex-pet: local activity");
+			}, { home: dshHomeDir(), onDiagnostics: (data) => state.writeSection('integrations', data) });
+			localActivity.updateHost(pendingHostActivity);
+		}).catch((error) => console.warn('[codex-pet] 双联动监听未能启动：' + error.message));
+		return () => { disposed = true; localActivity?.stop(); localActivity = null; };
+	}, 'codex-pet: local dual activity');
 	let publishedWork = "\0";
 	const publishWorkStatus = () => {
 		const snap = workStatus.snapshot();
 		const key = String(snap.state) + "\0" + String(snap.task);
 		if (key === publishedWork) return;
 		publishedWork = key;
-		state.writeSection("workStatus", {
-			state: snap.state,
-			task: snap.task
-		});
+		pendingHostActivity = { state: snap.state, task: snap.task };
+		localActivity?.updateHost(pendingHostActivity);
 	};
 	const pushNotifyFrame = (frame) => {
 		state.writeSection("notify", frame);
@@ -4662,8 +4659,8 @@ async function run(logger, options) {
 		`  配置        ${configSource}`,
 		`  宠物        ${describePets(pets)}`,
 		desktopVisible.length === 0 ? "  桌面小窗    0 只：display 需要 desktop 或 both 才会出现透明小窗（服务仍在运行）" : `  桌面小窗    ${desktopVisible.length} 只`,
-		"  额度        Codex 登录账号，只读查询（无需 DSH）",
-		"  陪伴        本地语录碎碎念 + Codex 任务状态联动",
+		"  额度        Codex 账号额度查询已关闭",
+		"  陪伴        本地语录碎碎念 + Codex／Harness 双状态联动",
 		"  对话        Codex 账号模型，或管理窗口里启用的第三方 API（仅主动发送时调用）",
 		"  退出        Ctrl+C，或 POST /shutdown",
 		""

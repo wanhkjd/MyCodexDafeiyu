@@ -22,6 +22,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('petBridge', {
   onLifecycle(cb) { ipcRenderer.on('pet:lifecycle', (_e,phase)=>cb(phase)); },
   startControl(info) { ipcRenderer.send('pet:start-control',info); },
+  openHarness() { ipcRenderer.send('pet:open-harness'); },
+  onLaunchError(cb) { ipcRenderer.on('pet:launch-error', (_e, message) => cb(message)); },
   openCodex() { ipcRenderer.send('pet:open-codex'); },
   setRiceTarget(data) { ipcRenderer.send('pet:rice-target', data); },
   spawnRice() { ipcRenderer.send('pet:rice-spawn'); },

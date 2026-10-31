@@ -1,8 +1,8 @@
 {
   "name": "codex-dafeiyu",
   "productName": "Codex-dafeiyu",
-  "version": "1.4.5",
-  "description": "Codex 桌面陪伴与额度管理",
+  "version": "1.5.0",
+  "description": "Codex／DeepSeek Harness 桌面陪伴与工作联动",
   "main": "main.cjs",
   "private": true
 }
