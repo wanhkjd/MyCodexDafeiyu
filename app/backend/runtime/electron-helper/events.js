@@ -335,6 +335,10 @@ function startLoops() {
 
   // 统一轮询：1s 一拍（余额数据由 host 定时器刷新后写进 S，这里只读）
   const stateLoop = async () => {
+    try {
+      const response = await fetch(BASE + '/drag-settings', { cache: 'no-store' });
+      if (response.ok) { const state = await response.json(); if (state.ok) for (const pet of sprites) pet.setDragSettings(state.settings); }
+    } catch { /* Keep the last applied settings during a transient backend outage. */ }
     await checkCharacterAvailability();
     await pollStateOnce();
     setTimeout(() => void stateLoop(), 1000);

@@ -17,13 +17,13 @@
     disable(false);
     preview();
   }
-  slider.oninput = () => { revision++; number.value = slider.value; preview(); status.textContent = '点击「应用大小」保存。'; };
-  number.oninput = () => { revision++; if (number.value !== '') slider.value = number.value; preview(); status.textContent = '点击「应用大小」保存。'; };
+  slider.oninput = () => { revision++; number.value = slider.value; preview(); status.textContent = '未应用'; };
+  number.oninput = () => { revision++; if (number.value !== '') slider.value = number.value; preview(); status.textContent = '未应用'; };
   reset.onclick = () => {
     revision++;
     slider.value = number.value = state.defaultSize;
     preview();
-    status.textContent = '已选择默认大小，点击「应用大小」保存。';
+    status.textContent = '已恢复默认，待应用';
   };
   form.onsubmit = async event => {
     event.preventDefault();
@@ -37,7 +37,7 @@
       const result = await window.pet.action('pet-size-save', { size });
       if (!result.ok) throw new Error(result.message || '应用大小失败');
       render(result);
-      status.textContent = '已应用 ' + result.size + ' px，重启后也会保留。';
+      status.textContent = '已应用 ' + result.size + ' px';
     } catch (error) {
       disable(false);
       status.textContent = error.message || '应用大小失败，请稍后重试。';

@@ -53,7 +53,7 @@ function upgradeQuotes(root, data) {
 }
 
 function checkPackage(root, { source = false } = {}) {
-  const required = ['windows-activation.cjs','integrations-control.cjs','integrations-panel.js','backend/runtime/harness-activity.mjs','backend/runtime/work-activity.mjs','backend/runtime/codex-activity.mjs',
+  const required = ['panel-layout.js','panel-layout.css','drag-panel.js','backend/runtime/drag-settings.mjs','backend/runtime/electron-helper/drag-motion.js','windows-activation.cjs','integrations-control.cjs','integrations-panel.js','backend/runtime/harness-activity.mjs','backend/runtime/work-activity.mjs','backend/runtime/codex-activity.mjs',
     'integrations/harness-bridge/index.mjs','integrations/harness-bridge/package.json','integrations/harness-bridge/cordis.patch.yml','node.exe','backend-entry.mjs','DesktopBridge.exe','backend/lib/standalone.js',
     'backend/assets/config.jsonc','backend/runtime/electron-helper/main.js','assets/icon.ico',
     'pet-size-panel.js','backend/runtime/pet-size.mjs','character-panel.js','backend/runtime/characters.mjs','backend/runtime/electron-helper/flight-motion.js',

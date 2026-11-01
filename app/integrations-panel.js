@@ -3,7 +3,7 @@
   let busy=false, stopped=false, config;
   function render(view) {
     config=view.config;el('integration-codex').checked=config.codex;el('integration-harness').checked=config.harness;
-    el('harness-installed').textContent=view.installed?'桥接包已安装；是否运行请看上方连接状态。':'桥接包尚未安装。已有旧版 dsh-pet 桥接不会被覆盖。';
+    el('harness-installed').textContent=view.installed?'桥接包已安装':'桥接包未安装';
     el('harness-path').textContent='启动：'+(config.harnessPath || (view.registeredPath?'自动协议 · '+view.registeredPath:'未检测到启动协议，请选择软件 EXE'));
     el('harness-profile-path').textContent='Profile：'+config.profile;controls.forEach(id=>el(id).disabled=busy);
   }

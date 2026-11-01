@@ -18,12 +18,14 @@
  *     都跨屏（#43，宠物可被甩/拖到其它显示器）；单显示器时即主屏工作区，行为不变。
  *     外扩区透明且点击穿透（只有身体命中区可交互），不挡下层应用。
  *   - 右键级联菜单（与浏览器共用同一份组件：树+渲染+样式来自 shared-core 的 menu 模块）：
- *     右键宠物弹出，桌面端工具根项「打开网站 / 打开 DeepSeek Harness（宿主是 DSH 桌面应用时的同一项）/ 查看余额 / 回到初始位置 / 重载配置」+ 动作点播；
+ *     右键宠物弹出，桌面端工具根项「打开网站 / 打开 DeepSeek Harness（宿主是 DSH 桌面应用时的同一项）/ 回到初始位置 / 重载配置」+ 动作点播；
  *     菜单开启期间整窗保持可交互（悬停菜单不触发穿透翻转），关闭/离开窗口即恢复穿透。
  *   - 系统通知不是宠物行为（浏览器半侧 notify.ts 负责），桌面端不重复实现。
  */
 'use strict';
 let lifecyclePhase = 'resume';
+let forcedPassThrough = false;
+let displaySettings = { edgePeek: false };
 
 // ---------- 配置（大声报错；失败 5s 重试） ----------
 function showError(message) {
@@ -49,8 +51,12 @@ async function loadConfig() {
   const res = await fetch(BASE + '/config', { cache: 'no-store' });
   if (!res.ok) throw new Error(`config http ${res.status}`);
   const merged = await res.json();
+  const dragResponse = await fetch(BASE + '/drag-settings', { cache: 'no-store' });
+  if (!dragResponse.ok) throw new Error('拖拽配置读取失败');
+  const drag = await dragResponse.json();
   return {
     pets: S.flattenConfigPets(merged),
+    dragSettings: drag.settings,
     // 拖拽抛掷物理参数（顶层全局，所有宠物共用；合并器已填内置默认）
     physics: (merged && merged.main && merged.main.physics) || S.DEFAULT_PHYSICS,
     // 抛掷锁定在当前屏幕（根字段；合并器已填内置默认 false）
@@ -79,7 +85,7 @@ async function boot() {
     }
     for (const s of sprites) s.dispose();
     sprites = [new PetSprite(pet)];
-    for (const s of sprites) { s.suspended = lifecyclePhase === 'suspend'; s.playIdle(); }
+    for (const s of sprites) { s.suspended = lifecyclePhase === 'suspend'; s.forcedPassThrough = forcedPassThrough; s.edgePeek.setEnabled(displaySettings.edgePeek); s.playIdle(); }
     startLoops();
   } catch (e) {
     showError('配置加载失败：' + (e && e.message ? String(e.message) : String(e)));
@@ -128,7 +134,7 @@ if (window.petBridge && window.petBridge.onDisplays) {
 // 那正好落在拖拽/飞行过程中，不设防就会看到宠物瞬间跳回上一个落点。
 window.addEventListener('resize', () => {
   for (const s of sprites) {
-    if (s.dragState.active || s.throwRef !== null || s.moveRef !== null || s.flightRef !== null || s.pendingFlight || s.flightPlan) continue;
+    if (s.edgePeek.dock || s.dragState.active || s.throwRef !== null || s.moveRef !== null || s.flightRef !== null || s.pendingFlight || s.flightPlan || s.runRef !== null || s.pendingRun || s.runPlan) continue;
     s.position();
   }
 });
@@ -145,8 +151,9 @@ window.petBridge?.onLifecycle?.(phase=>{
     if(Number.isInteger(s.activePointerId))try{s.hit.releasePointerCapture(s.activePointerId);}catch{}
     s.activePointerId=null;s.dragTrail=[];
     s.hit.classList.remove('dragging');
-    s.stage.style.transform='translateY('+s.bottomPad+'px)';
+    if (!s.edgePeek.dock) s.stage.style.transform='translateY('+s.bottomPad+'px)';
     s.stopDragFollow();s.stopThrow();s.stopSquash();s.stopMove();
+    s.edgePeek.lifecycle();
     s.customPos={rx:(s.pos.x+s.halfW)/VIEW.w,ry:(s.pos.y+s.halfH)/VIEW.h};
     s._interactive=null;s._inputBusy=null;s._inputRegions=null;
     s.syncInputBusy();s.setInteractive(false);
@@ -155,10 +162,34 @@ window.petBridge?.onLifecycle?.(phase=>{
       s.clampFlightPosition();
       s.sendBounds(s.pos.x,s.pos.y);
       const video=s.front===0?s.videoA:s.videoB;
-      if(s.isFlightAnimation(s.anim)) s.playOnce(s.character.landing);
+      if(s.edgePeek.dock) s.playIdle();
+      else if(s.isFlightAnimation(s.anim)) s.playOnce(s.character.landing);
+      else if(s.isRunAnimation(s.anim)) s.playIdle();
       else if(video && video.src){if(video.error)video.load();video.play().catch(()=>s.playIdle());}
       else s.playIdle();
     }
   }
   if(phase==='resume')pollStateNow();
+});
+
+window.petBridge?.onForcedPassThrough?.(active => {
+  forcedPassThrough = active;
+  for (const s of sprites) {
+    s.forcedPassThrough = active;
+    if (active) {
+      s.closeMenu();
+      if (s.chatClose) { s.chatClose(); s.chatClose = null; s.chatOpen = false; }
+      s.onPointerUp();
+      s.edgePeek.lifecycle(); // Cancel before passing clicks through: no stuck capture or unintended throw.
+      s.setTip(false);
+    }
+    s._interactive = null;
+    s.syncInputBusy();
+    s.setInteractive(false);
+  }
+});
+
+window.petBridge?.onDisplaySettings?.(settings => {
+  displaySettings = { edgePeek: settings?.edgePeek === true };
+  for (const s of sprites) s.edgePeek.setEnabled(displaySettings.edgePeek);
 });

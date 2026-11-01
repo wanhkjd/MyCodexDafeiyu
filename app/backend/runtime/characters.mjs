@@ -4,6 +4,10 @@ import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
+// Idle alpha bounds: fish ~268/640 tall, dragon ~616/720 tall. Match visible height, not transparent canvas width.
+// Both matched characters are half the previous presentation size; keep fish near its original size.
+export const DAFEIYU_VISUAL_SCALE = 1.025;
+export const BAILONG_VISUAL_SCALE = 0.5;
 export const CHARACTER_ASSET_ROOT = '__character_bailong';
 // Resolve from this module, never from cwd, a username, or a persisted installation path.
 export const BUNDLED_BAILONG_ROOT = fileURLToPath(new URL('../assets/characters/bailong/', import.meta.url));
@@ -63,8 +67,8 @@ export function loadBailongPack(root, { fresh = false } = {}) {
   return pack;
 }
 
-export const DEFAULT_BEHAVIOR = Object.freeze({ largeActions: true, flight: true });
-const behaviorOf = value => ({ largeActions: value?.largeActions !== false, flight: value?.flight !== false });
+export const DEFAULT_BEHAVIOR = Object.freeze({ largeActions: true, run: true, flight: true });
+const behaviorOf = value => ({ largeActions: value?.largeActions !== false, run: value?.run !== false, flight: value?.flight !== false });
 export const skinLibrary = home => join(resolve(home), 'skins', 'bailong');
 export function isManagedPack(home, root) {
   try { return within(realpathSync(skinLibrary(home)), realpathSync(root)); } catch { return false; }
@@ -192,7 +196,9 @@ export function applyCharacterConfig(merged, home) {
   const state = resolvedSelection(home);
   if (!merged.main) return merged;
   merged.main.behavior = state.behavior;
-  merged.main.pets = merged.main.pets.map(p => ({ ...p, behavior: state.behavior }));
+  // Keep size as the user's shared 100–500 px setting; renderSize is derived and never saved.
+  const visualScale = state.active === 'dafeiyu' ? DAFEIYU_VISUAL_SCALE : BAILONG_VISUAL_SCALE;
+  merged.main.pets = merged.main.pets.map(p => ({ ...p, behavior: state.behavior, renderSize: p.size * visualScale }));
   if (state.active !== 'bailong') return merged;
   const { clips } = state.pack;
   const main = merged.main;
@@ -207,7 +213,15 @@ export function applyCharacterConfig(merged, home) {
     labels: Object.fromEntries(Object.values(clips).map(clip => [clip.id, clip.name])),
     idle: [...GROUPS.idle, ...GROUPS.additionalIdleAnimations], turn: [], drag: ['drag'], clicks: ['01', '08', '20', '09'],
     moves: { default: { minDist: 100, maxDist: 220, margin: 20, leadSec: 0, tailSec: 0 }, actions: walks.map(id => ({ name: id, params: { leadSec: clips[id].moveStartMs / 1000, tailSec: (clips[id].durationMs - clips[id].moveStopMs) / 1000 } })) },
-    categories: [category('INTERACTION', '白龙互动', GROUPS.variants, 25), category('WORK', '工作展示', GROUPS.workAnimations, 0), category('FLIGHT', '整屏自由飞行', ['move03left', 'move03right'], 0), category('SPECIAL', '拖拽 / 落地 / 查阅', ['drag', 'landing', 'quota'], 0)],
+    categories: [category('INTERACTION', '白龙互动', GROUPS.variants, 25), category('WORK', '工作展示', GROUPS.workAnimations, 0), category('FLIGHT', '整屏自由飞行', ['move03left', 'move03right'], 0), category('SPECIAL', '拖拽与落地', ['drag', 'landing'], 0)],
+    // Menu groups are separate from event/random pools: list each clip once, without quota actions.
+    menuGroups: [
+      { label: '待机', actions: [...GROUPS.idle, ...GROUPS.additionalIdleAnimations] },
+      { label: '白龙互动', actions: [...GROUPS.variants] },
+      { label: '移动与飞行', actions: [...GROUPS.movementAnimations] },
+      { label: '工作展示', actions: [...GROUPS.workAnimations] },
+      { label: '拖拽与落地', actions: ['drag', 'landing'] },
+    ],
     events: { balance: Array(6).fill('quota'), whisper: ['01', '08', '04'], workStatus: [['work01', 'work04'], 'work02', 'work03', 'work05', '18', '13'] },
   };
   return merged;

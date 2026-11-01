@@ -8,7 +8,7 @@
   card.innerHTML = `<div class="section-title"><h2>大肥鱼现在</h2><label class="mood-toggle"><input type="checkbox" id="mood-enabled">启用心情</label></div>
 <p class="mood-head"><span id="mood-emoji" class="mood-emoji" aria-hidden="true"></span><strong id="mood-name">正在感受中…</strong></p>
 <p id="mood-reason" class="muted"></p><div id="mood-bars"></div><p id="mood-meals" class="muted"></p><p id="mood-talk" class="muted"></p>
-<p class="mood-feeding muted" id="mood-feeding">喂白饭：右击桌宠选择“喂白饭”，屏幕上会随机出现一碗白饭。拖到桌宠身上松手喂食；松在别处可以继续拖，右击饭碗可取消。<br><small>饱腹 +15 · 亲密按日常规则增加</small></p>
+<p class="mood-feeding muted" id="mood-feeding">右击桌宠「喂白饭」，拖动饭碗到桌宠身上。</p>
 <div class="mood-quiet" id="mood-quiet"><label class="mood-toggle"><input type="checkbox" id="quiet-enabled">安静时段</label>
 <input type="time" id="quiet-start" aria-label="安静时段开始" value="23:00"><span>至</span><input type="time" id="quiet-end" aria-label="安静时段结束" value="08:00"></div>
 <p id="mood-message" class="muted" role="status"></p>

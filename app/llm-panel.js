@@ -3,27 +3,26 @@
 const card=document.createElement('section');
 card.id='llm-card';card.className='quota-card llm-card';
 card.innerHTML=`<div class="section-title"><h2>聊天用的大模型</h2><button id="llm-toggle" class="text-button" type="button" aria-expanded="false" disabled>设置</button></div>
-<label class="memory-toggle"><input type="checkbox" id="llm-enabled" disabled>用第三方 API（关闭时跟随本机 Codex，含 CC Switch 中转）</label>
+<label class="memory-toggle"><input type="checkbox" id="llm-enabled" disabled>用第三方 API（关闭时使用本机 Codex）</label>
 <p id="llm-summary" class="muted">正在读取模型设置…</p>
 <div id="llm-form" hidden>
 <div class="llm-field"><span>使用的配置</span><div class="llm-row"><select id="llm-profile" aria-label="使用的配置"></select><button id="llm-add" type="button">＋ 新增</button><button id="llm-remove" type="button">删除</button></div></div>
 <label>服务商<select id="llm-preset"></select></label>
-<p id="llm-hint" class="muted"></p>
 <label>配置名称<input id="llm-name" maxlength="40"></label>
 <label>API 地址<input id="llm-base" maxlength="300" spellcheck="false" placeholder="https://api.deepseek.com"></label>
 <div class="llm-field"><span>API Key</span><div class="llm-row"><input id="llm-key" type="password" maxlength="500" autocomplete="off" spellcheck="false" aria-label="API Key"><button id="llm-key-clear" type="button" hidden>清除</button></div></div>
 <div class="llm-field"><span>模型</span><div class="llm-row"><input id="llm-model" maxlength="160" spellcheck="false" aria-label="模型" placeholder="例如 deepseek-flash"><button id="llm-fetch" type="button">获取列表</button></div><select id="llm-model-list" aria-label="从列表选择模型" hidden></select></div>
-<label>思考模式<select id="llm-thinking"><option value="off">关闭（推荐：回复快、省 token）</option><option value="on">开启（更慢、更费 token）</option><option value="default">服务商默认（不发送该参数）</option></select></label>
+<label>思考模式<select id="llm-thinking"><option value="off">关闭</option><option value="on">开启</option><option value="default">服务商默认</option></select></label>
 <label>网络代理<select id="llm-proxy-mode"><option value="system">跟随系统代理</option><option value="direct">不用代理（直连）</option><option value="custom">指定代理端口</option></select></label>
 <label id="llm-proxy-row">代理端口或地址<input id="llm-proxy" maxlength="200" spellcheck="false" placeholder="7890 或 127.0.0.1:7890"></label>
 <details><summary>高级设置</summary><div class="llm-grid"><label>温度（0–2）<input id="llm-temperature" type="number" min="0" max="2" step="0.1"></label><label>最大输出 token<input id="llm-max-tokens" type="number" min="32" max="32768" step="1"></label><label>超时（秒，10–110）<input id="llm-timeout" type="number" min="10" max="110" step="1"></label><label>携带历史轮数<input id="llm-history" type="number" min="0" max="20" step="1"></label></div></details>
-<details id="llm-vision-box"><summary>识图（看画面用）</summary><p class="muted">启用第三方 API 时，「她的 B 站」把九宫格交给这里选的模型；关闭第三方 API 时，跟随本机 Codex 的当前模型（含 CC Switch 中转），无需在这里配置。画面识别需要模型支持图片。</p>
+<details id="llm-vision-box"><summary>识图（看画面用）</summary><p class="muted">识图模型需支持图片。</p>
 <label>用哪套配置<select id="llm-vision-profile"></select></label>
 <label>识图模型名<input id="llm-vision-model" maxlength="160" spellcheck="false" placeholder="留空就用那套配置的模型，例如 glm-4.6v-flash"></label>
 <div class="llm-row"><button id="llm-vision-test" type="button">测试识图</button></div><p id="llm-vision-status" class="muted" role="status"></p></details>
 <div class="actions"><button id="llm-test" type="button">测试连接</button><button id="llm-save" type="button" class="primary">保存</button></div>
 <p id="llm-status" role="status"></p>
-<p class="muted">Key 用系统加密只存在本机，聊天时才发给你填的服务商。测试连接会发一条很短的消息，可能产生极少费用。</p>
+<p class="muted">测试会调用服务商，可能产生费用。</p>
 </div>`;
 document.querySelector('.chat-card').before(card);
 const $=id=>document.getElementById(id);
@@ -61,7 +60,6 @@ function fillForm(){
  $('llm-key').placeholder=saved?'已保存（留空则不修改）':clearKeys.has(p.id)?'保存后清除已存的 Key':keyless(p)?'不需要，留空即可':'sk-…';
  $('llm-key-clear').hidden=!saved;
  $('llm-proxy-row').hidden=p.proxyMode!=='custom';
- $('llm-hint').textContent=state.presets.find(item=>item.id===p.preset)?.hint||'';
  $('llm-remove').disabled=busy||draft.profiles.length<=1;
  fillVision();
 }
@@ -74,8 +72,8 @@ function apply(next){
  const p=next.profiles.find(item=>item.id===next.active);
  $('llm-enabled').checked=next.enabled;
  $('llm-summary').textContent=next.enabled
-  ? p?.baseUrl&&p.model?`当前：${p.name} · ${p.model} · ${proxyLabel(p)}${p.hasKey||keyless(p)?'':' · 还没保存 Key'}`:'第三方 API 已启用，但配置不完整；请补全 API 地址和模型，不会自动切回 Codex。'
-  : '当前跟随本机 Codex 配置（含 CC Switch 中转）；聊天、B 站内容理解和看画面共用此开关。';
+  ? p?.baseUrl&&p.model?`当前：${p.name} · ${p.model} · ${proxyLabel(p)}${p.hasKey||keyless(p)?'':' · 还没保存 Key'}`:'第三方 API 配置不完整，请补全地址和模型。'
+  : '当前：本机 Codex';
  fillForm();
 }
 function expand(value){$('llm-form').hidden=!value;$('llm-toggle').textContent=value?'收起':'设置';$('llm-toggle').setAttribute('aria-expanded',String(value));}

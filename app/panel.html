@@ -1,9 +1,19 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
-<title>Codex-dafeiyu</title><link rel="stylesheet" href="panel.css"></head><body>
-<header><img src="assets/logo.jpg" alt="Codex-dafeiyu图标"><div><p class="eyebrow">YOUR LITTLE DESKTOP COMPANION</p><h1>Codex-dafeiyu</h1><p>你的小伙伴，陪你聊天、工作和看视频。</p></div></header>
-<main>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'">
+<title>Codex-dafeiyu</title><link rel="stylesheet" href="panel.css"><link rel="stylesheet" href="panel-layout.css"></head><body>
+<div class="panel-shell">
+<aside class="panel-sidebar" aria-label="控制面板导航">
+<div class="panel-brand"><img src="assets/logo.jpg" alt=""><div><strong>大肥鱼的小屋</strong><small>你的小伙伴，一直都在</small></div></div>
+<label class="panel-search"><span data-panel-icon="search"></span><input id="panel-search" type="search" placeholder="搜索设置…" aria-label="搜索设置" autocomplete="off"></label>
+<nav id="panel-navigation" aria-label="设置分类"></nav>
+<div id="panel-presence"></div>
+<div class="panel-version"><span>Codex-dafeiyu · v1.6.0</span><button type="button" data-action="quit" class="text-button">退出软件</button></div>
+</aside>
+<div class="panel-workspace">
+<header class="panel-heading"><p class="panel-breadcrumb">控制面板 <span>/</span> <span id="panel-breadcrumb">桌宠</span></p><h1 id="panel-title">桌宠</h1></header>
+<div id="panel-tabs" class="panel-tabs" role="tablist" aria-label="桌宠页签"></div>
+<main id="panel-content" class="panel-content" tabindex="-1">
 <section class="status-card"><span class="dot"></span><div><small>此刻的我</small><p id="activity" aria-live="polite">正在准备与你见面…</p></div></section>
 <section class="integrations-card" aria-labelledby="integrations-title">
 <div class="section-title"><h2 id="integrations-title">工作联动</h2><span>只读状态 · 不调用模型</span></div>
@@ -11,8 +21,7 @@
 <p id="integration-codex-status" class="integration-status" role="status">正在读取状态…</p>
 <div class="integration-row"><label class="memory-toggle"><input id="integration-harness" type="checkbox" disabled>感知 Harness 工作状态</label><button type="button" data-action="open-harness">打开 Harness</button></div>
 <p id="integration-harness-status" class="integration-status" role="status">正在读取状态…</p>
-<p class="integration-note">两边可同时开启。等待你确认的任务优先显示；有任务还在运行时，不会显示全部完成。聊天模型选择不影响状态联动。</p>
-<details><summary>Harness 桥接与启动设置</summary><p id="harness-installed" class="integration-note"></p><p class="integration-note">安装只添加零依赖本地插件，并备份 Profile 清单和锁文件；不改模型、账号或原有插件。安装后请完全退出并重新打开 Harness。</p>
+<details><summary>Harness 桥接与启动设置</summary><p id="harness-installed" class="integration-note"></p><p class="integration-note">安装后需重启 Harness。</p>
 <button type="button" id="harness-install" disabled>安装／更新本地桥接</button>
 <p id="harness-path" class="integration-note"></p><div class="integration-buttons"><button type="button" id="harness-exe" disabled>选择软件 EXE</button><button type="button" id="harness-auto" disabled>使用启动协议</button></div>
 <p id="harness-profile-path" class="integration-note"></p><button type="button" id="harness-profile" disabled>选择 Harness Profile</button></details>
@@ -21,34 +30,55 @@
 <section class="character-card" aria-labelledby="character-title">
 <div class="section-title"><h2 id="character-title">桌面形象</h2><span id="character-active">正在读取…</span></div>
 <div class="character-options" role="group" aria-label="选择桌面形象">
-<button type="button" id="character-dafeiyu" aria-pressed="false" disabled><strong>大肥鱼</strong><small>内置形象 · 同一个伙伴</small></button>
-<button type="button" id="character-bailong" aria-pressed="false" disabled><strong>白龙</strong><small>内置形象 · 35 段动画</small></button>
+<button type="button" id="character-dafeiyu" aria-pressed="false" disabled><strong>大肥鱼</strong><small>内置形象</small></button>
+<button type="button" id="character-bailong" aria-pressed="false" disabled><strong>白龙</strong><small>内置形象</small></button>
 </div>
 <form id="pet-size-form" class="pet-size-controls" aria-labelledby="pet-size-title">
 <div class="section-title"><h3 id="pet-size-title">桌宠大小</h3><output id="pet-size-current" for="pet-size-slider pet-size-number">正在读取…</output></div>
 <label for="pet-size-slider" class="muted">拖动调节（小 ← → 大）</label>
-<input id="pet-size-slider" type="range" min="100" max="500" step="1" value="400" aria-label="桌宠大小滑块" aria-describedby="pet-size-note" disabled>
-<div class="pet-size-row"><label for="pet-size-number">宽度（px）</label><input id="pet-size-number" type="number" min="100" max="500" step="1" value="400" required disabled><button id="pet-size-default" type="button" disabled>恢复默认</button><button id="pet-size-apply" type="submit" class="primary" disabled>应用大小</button></div>
-<p id="pet-size-note" class="muted">100–500 px，默认 400。大肥鱼和白龙共用；应用后生效并记住，无需重启软件。</p>
+<input id="pet-size-slider" type="range" min="100" max="500" step="1" value="400" aria-label="桌宠大小滑块" disabled>
+<div class="pet-size-row"><label for="pet-size-number">大小（px）</label><input id="pet-size-number" type="number" min="100" max="500" step="1" value="400" required disabled><button id="pet-size-default" type="button" disabled>恢复默认</button><button id="pet-size-apply" type="submit" class="primary" disabled>应用大小</button></div>
 <p id="pet-size-status" role="status" aria-live="polite"></p>
 </form>
+<form id="display-settings-form" aria-label="隐藏与置顶设置"><fieldset disabled>
+<label class="drag-setting"><span>窗口置顶</span><input type="checkbox" role="switch" id="display-alwaysOnTop"></label>
+<label class="drag-setting"><span>全屏时自动隐藏<small>退出全屏后恢复；手动隐藏不受影响</small></span><input type="checkbox" role="switch" id="display-autoHideFullscreen"></label>
+<label class="drag-setting"><span>光标隐藏时自动穿透<small>光标恢复后可正常点击桌宠</small></span><input type="checkbox" role="switch" id="display-cursorHidePassThrough"></label>
+<label class="drag-setting"><span>边缘探头（左右吸边）<small>拖到左右边缘吸附；点击展开，5 秒后缩回</small></span><input type="checkbox" role="switch" id="display-edgePeek"></label>
+</fieldset><p id="display-settings-status" role="status" aria-live="polite"></p></form>
 <button type="button" id="character-bundled" hidden>使用内置白龙</button>
 <button type="button" id="character-folder">导入其他白龙素材（可选）</button>
 <button type="button" id="character-import" hidden>保存到本地素材库</button>
 <p id="character-path"></p><p id="character-status" role="status" aria-live="polite">白龙动画随程序提供，点击即可切换；可选导入其他素材。</p>
-<p class="character-note">只换形象，不换人格：聊天记录、心情与养成全部共享。内置素材随项目和构建提供，不复制到个人资料库；自选导入仍保留独立素材库。</p>
+<form id="drag-settings-form"><fieldset disabled>
+<label class="drag-setting"><span>拖动物理</span><input type="checkbox" role="switch" id="drag-dragPhysics"></label>
+<label class="drag-setting"><span>静止放手下落</span><input type="checkbox" role="switch" id="drag-dropGravity"></label>
+<div class="drag-setting"><label for="drag-throwStrength">甩出力度</label><div class="drag-strength"><select id="drag-throwStrength" aria-label="甩出力度"></select><button type="button" id="drag-strength-default">恢复标准</button></div></div>
+<label class="drag-setting"><span>锁定位置</span><input type="checkbox" role="switch" id="drag-lockPosition"></label>
+<label class="drag-setting"><span>Shift + 左键拖动</span><input type="checkbox" role="switch" id="drag-shiftDrag"></label>
+<label class="drag-setting"><span>碰撞反弹<small>屏幕边缘和落地</small></span><input type="checkbox" role="switch" id="drag-collisionEnabled"></label>
+<details class="collision-settings"><summary>碰撞参数（高级）</summary>
+<label class="drag-setting"><span>撞后弹力<small>0～1.00</small></span><input type="number" id="drag-collisionRestitution" min="0" max="1" step="0.01" required></label>
+<label class="drag-setting"><span>摩擦系数<small>0～0.30</small></span><input type="number" id="drag-collisionFriction" min="0" max="0.3" step="0.01" required></label>
+<label class="drag-setting"><span>体重倍率<small>0.5～2.0</small></span><input type="number" id="drag-collisionMass" min="0.5" max="2" step="0.01" required></label>
+<label class="drag-setting"><span>最大撞击力度<small>1000～12000</small></span><input type="number" id="drag-collisionMaxImpulse" min="1000" max="12000" step="100" required></label>
+<button type="button" id="drag-collision-default">恢复碰撞默认值</button>
+</details>
+<button type="submit" id="drag-settings-apply" class="primary">应用拖拽设置</button>
+</fieldset><p id="drag-settings-status" role="status" aria-live="polite"></p></form>
 <div class="skin-behavior" role="group" aria-label="动作开关">
-<label class="memory-toggle"><input type="checkbox" id="skin-large-actions" checked disabled>允许大幅动作（含自主走动和飞行）</label>
-<label class="memory-toggle"><input type="checkbox" id="skin-flight" checked disabled>允许白龙整屏飞行</label>
-<p id="skin-behavior-note" class="muted" role="status"></p>
+<label class="memory-toggle"><input type="checkbox" id="skin-large-actions" checked disabled>允许大幅动作（含自由奔跑和飞行）</label>
+<label class="memory-toggle"><input type="checkbox" id="skin-run" checked disabled>允许大肥鱼自由奔跑</label>
+<label class="memory-toggle"><input type="checkbox" id="skin-flight" checked disabled>允许白龙自由飞行</label>
 </div>
 </section>
 
 <div class="actions"><button class="primary" data-action="toggle" id="visibility">隐藏桌宠</button><button data-action="quote">碎碎念 · 来一句</button></div>
 <section class="quota-card chat-card"><div class="section-title"><h2 id="chat-title">和本鱼聊天</h2><button class="text-button" data-action="open-codex">打开 Codex</button></div><div class="chat-toolbar"><button id="chat-expand" aria-expanded="false">展开对话</button><button id="chat-new">＋ 新建聊天</button></div>
 <div id="chat-expanded" hidden><label>聊天记录<select id="chat-sessions" aria-label="切换聊天"></select></label><div id="chat-history" role="log" aria-label="和大肥鱼的聊天记录"></div></div>
-<div class="chat-preferences"><p id="chat-model-source" class="muted">模型来源：跟随本机配置</p><label class="memory-toggle"><input type="checkbox" id="chat-memory">使用我的画像（可选）</label><p id="chat-memory-note" class="muted" hidden></p><details><summary>关于我的画像：查看、补充与纠正</summary><p class="muted">无需账号。可填写自己的身份、兴趣和偏好；勾选后随消息使用，也会读取本机已有的 Codex 个人摘要（如果存在），不会要求登录。新用户默认关闭。</p><pre id="memory-preview"></pre><label for="profile-notes">我的补充或纠正（优先于旧记忆）</label><textarea id="profile-notes" maxlength="3000" placeholder="例如：我是……；我最近正在……；我喜欢……；请叫我……。不知道或不想提供的可以不填。"></textarea><button id="profile-save" type="button">保存我的画像</button><p id="profile-status" role="status"></p></details><details id="persona-box"><summary>她的人设：名字、性格与说话方式</summary><p class="muted">只影响聊天时她怎么说话，保存后下一条消息生效。</p><div class="persona-names"><label>她的名字<input id="persona-name" maxlength="12" placeholder="不填就叫大肥鱼"></label><label>她怎么叫你<input id="persona-call" maxlength="12" placeholder="不填就叫「你」"></label></div><label>性格<select id="persona-preset" aria-label="性格"></select></label><p id="persona-preset-note" class="muted"></p><label for="persona-notes">补充设定 <span id="persona-count"></span></label><textarea id="persona-notes" maxlength="800" placeholder="例如：可以损我两句；我写代码的时候别一直问我在干嘛；说话再随便一点。"></textarea><label class="memory-toggle"><input type="checkbox" id="persona-state">让她知道此刻的状态（心情、时间、吃饭、Codex／Harness 的工作状态）</label><label class="memory-toggle"><input type="checkbox" id="persona-actions">回复时带动作（桌宠会跟着做）</label><p id="persona-share-note" class="muted" hidden></p><button id="persona-save" type="button">保存人设</button><p id="persona-status" role="status"></p><p class="muted">发给模型的人设全文：</p><pre id="persona-preview"></pre></details></div><p id="chat-hint" class="muted">发送才调用模型 · 回复逐字显示 · 不依赖账号额度查询</p><form id="chat-form"><textarea id="chat-input" maxlength="2000" placeholder="给本鱼带小鱼干了吗？" required></textarea><button id="chat-send" class="primary">发送</button></form><p id="chat-result" role="status"></p></section>
+<div class="chat-preferences"><p id="chat-model-source" class="muted">模型来源：跟随本机配置</p><label class="memory-toggle"><input type="checkbox" id="chat-memory">使用我的画像（可选）</label><p id="chat-memory-note" class="muted" hidden></p><details><summary>我的画像</summary><pre id="memory-preview"></pre><label for="profile-notes">我的补充或纠正（优先于旧记忆）</label><textarea id="profile-notes" maxlength="3000" placeholder="例如：我是……；我最近正在……；我喜欢……；请叫我……。不知道或不想提供的可以不填。"></textarea><button id="profile-save" type="button">保存我的画像</button><p id="profile-status" role="status"></p></details><details id="persona-box"><summary>她的人设</summary><div class="persona-names"><label>她的名字<input id="persona-name" maxlength="12" placeholder="不填就叫大肥鱼"></label><label>她怎么叫你<input id="persona-call" maxlength="12" placeholder="不填就叫「你」"></label></div><label>性格<select id="persona-preset" aria-label="性格"></select></label><p id="persona-preset-note" class="muted"></p><label for="persona-notes">补充设定 <span id="persona-count"></span></label><textarea id="persona-notes" maxlength="800" placeholder="例如：可以损我两句；我写代码的时候别一直问我在干嘛；说话再随便一点。"></textarea><label class="memory-toggle"><input type="checkbox" id="persona-state">让她知道此刻的状态（心情、时间、吃饭、Codex／Harness 的工作状态）</label><label class="memory-toggle"><input type="checkbox" id="persona-actions">回复时带动作（桌宠会跟着做）</label><p id="persona-share-note" class="muted" hidden></p><button id="persona-save" type="button">保存人设</button><p id="persona-status" role="status"></p><p class="muted">发给模型的人设全文：</p><pre id="persona-preview"></pre></details></div><form id="chat-form"><textarea id="chat-input" maxlength="2000" placeholder="给本鱼带小鱼干了吗？" required></textarea><button id="chat-send" class="primary">发送</button></form><p id="chat-result" role="status"></p></section>
 <section class="settings"><h2>照顾你的小伙伴</h2><button data-action="quotes"><span>自定义语录</span><span>编辑 ›</span></button><button data-action="settings"><span>高级配置（位置与功能）</span><span>编辑文件 ›</span></button><button data-action="folder"><span>我的数据文件夹</span><span>打开 ›</span></button></section>
-<p id="notice" role="status"></p>
-</main><footer><span>v1.5.0 · 关闭窗口后留在托盘</span><button data-action="quit" class="text-button">退出软件</button></footer>
-<script src="panel.js"></script><script src="integrations-panel.js"></script><script src="character-panel.js"></script><script src="pet-size-panel.js"></script><script src="chat-panel.js"></script><script src="llm-panel.js"></script><script src="reminders-panel.js"></script><script src="mood-panel.js"></script><script src="bili-panel.js"></script></body></html>
+</main>
+<footer class="panel-savebar"><div class="panel-save-info"><p id="notice" role="status"></p><p id="panel-save-status" role="status" aria-live="polite"></p></div><button id="panel-save" type="button" class="primary">应用大小</button></footer>
+</div></div>
+<script src="panel.js"></script><script src="integrations-panel.js"></script><script src="character-panel.js"></script><script src="pet-size-panel.js"></script><script src="chat-panel.js"></script><script src="llm-panel.js"></script><script src="reminders-panel.js"></script><script src="mood-panel.js"></script><script src="bili-panel.js"></script><script src="drag-panel.js"></script><script src="panel-layout.js"></script></body></html>

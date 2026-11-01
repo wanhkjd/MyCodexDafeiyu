@@ -17,16 +17,14 @@
 <h3>账号</h3><p id="bili-account" class="muted"></p>
 <div class="bili-row"><button id="bili-login" type="button">扫码登录</button><button id="bili-logout" type="button" hidden>退出登录</button></div>
 <div id="bili-qr" hidden><img id="bili-qr-img" alt="B 站登录二维码" width="200" height="200"><p id="bili-qr-status" class="muted" role="status"></p><button id="bili-qr-cancel" type="button">取消</button></div>
-<p class="muted">请扫「给她用的那个号」，别扫成你自己的号。登录凭据用系统加密只存在本机，界面上看不到。</p>
+<p class="muted">使用给桌宠的账号扫码登录。</p>
 <div class="llm-grid"><label>你的 B 站 mid<input id="bili-owner-mid" inputmode="numeric" maxlength="20" placeholder="你个人空间网址里的数字"></label><label>你的 B 站昵称<input id="bili-owner-name" maxlength="30"></label></div>
-<p class="muted">现在只用来在素材里给你打码；第二期起用于 @ 你和私信你。</p>
 <h3>作息</h3><div id="bili-windows"></div><button id="bili-window-add" type="button">＋ 加一个时段</button>
 <div class="llm-grid"><label>不想看的概率（%）<input id="bili-skip" type="number" min="0" max="95" step="5"></label><label>每次挑几条<input id="bili-videos" type="number" min="1" max="8" step="1"></label></div>
 <h3>口味</h3><label>爱看（用逗号分开）<input id="bili-likes" maxlength="300"></label><label>不看（用逗号分开）<input id="bili-dislikes" maxlength="300"></label>
-<h3>看画面</h3><label class="memory-toggle"><input type="checkbox" id="bili-frames">细看时也看画面（截 9 帧拼成九宫格，交给识图模型）</label><p id="bili-vision" class="muted"></p>
-<h3>分享</h3><label class="memory-toggle"><input type="checkbox" id="bili-share">把值得看的分享给你（在桌面上冒泡）</label>
+<h3>看画面</h3><label class="memory-toggle"><input type="checkbox" id="bili-frames">细看时识别画面</label><p id="bili-vision" class="muted"></p>
+<h3>分享</h3><label class="memory-toggle"><input type="checkbox" id="bili-share">分享视频到桌面</label>
 <label>每天最多分享<select id="bili-daily"><option value="1">1 条</option><option value="2">2 条</option><option value="3">3 条</option></select></label>
-<p class="muted">13 分以上（满分 20）才分享，同一条 7 天内不重复；你很久不理她的分享，她会自己变安静。</p>
 <div class="actions"><button id="bili-save" type="button" class="primary">保存</button></div><p id="bili-status" role="status"></p>
 </div>`;
   (document.querySelector('.chat-card') || document.querySelector('.settings')).after(card);
@@ -39,7 +37,7 @@
   const words = value => value.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
 
   function summary(s) {
-    if (!s.enabled) return '关着：她不会去 B 站。打开后，她会在你设定的时段里随机醒来刷 B 站、写日记，把值得看的分享给你。';
+    if (!s.enabled) return 'B 站生活已关闭';
     const warn = !s.llm.ready ? '⚠ ' + (s.llm.message || '当前大模型不可用，请检查模型配置。')
       : s.api.banned ? `⚠ B 站限流中，约 ${s.api.bannedMinutes} 分钟后恢复。` : '';
     const next = s.plan.find(w => w.state === 'planned');

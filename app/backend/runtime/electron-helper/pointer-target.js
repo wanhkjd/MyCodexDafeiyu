@@ -97,6 +97,17 @@ function pointerZone(bounds, point) {
  *   新渲染端上报的窗口局部交互矩形。菜单/聊天框只占自己的区域；拖拽仍拥有完整输入租约。
  * @returns {boolean} 新的穿透状态
  */
+function bodyContains(body, x, y) {
+  if (!Array.isArray(body) || body.length !== 4) return false;
+  let sign = 0;
+  for (let i=0;i<4;i++) {
+    const a=body[i],b=body[(i+1)%4],cross=(b.x-a.x)*(y-a.y)-(b.y-a.y)*(x-a.x);
+    if (Math.abs(cross)<1e-7) continue;
+    if (sign && Math.sign(cross)!==sign) return false;
+    sign=Math.sign(cross);
+  }
+  return true;
+}
 function decideWindowIgnore(bounds, point, ignoring, busy, offBodyMs = 0, input) {
   if (input?.dragging || (busy && !input)) return false; // 拖拽租约不被位置判定打断
   // 饭碗也是独立控件，无需菜单/聊天 busy；只接收自身矩形内的点击。
@@ -108,6 +119,8 @@ function decideWindowIgnore(bounds, point, ignoring, busy, offBodyMs = 0, input)
       point.y < bounds.y + r.y + r.height,
   );
   if (inControl) return false;
+  // 旋转后的真实命中四边形是权威区域，不能退回鱼形矩形吞掉透明角落。
+  if (input?.body) return !bodyContains(input.body, point.x - bounds.x, point.y - bounds.y);
   if (busy) return pointerZone(bounds, point) !== 'body';
   const zone = pointerZone(bounds, point);
   if (zone === 'outside') return true; // 窗外：恢复穿透

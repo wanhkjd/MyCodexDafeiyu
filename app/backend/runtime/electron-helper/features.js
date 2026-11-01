@@ -11,11 +11,6 @@
   }
   window.petBridge?.onLaunchError(message => sprites[0]?.showWhisper(message));
   window.showPetReminders=s=>{call('/manager',{}).catch(()=>s.showWhisper('管理窗口暂时打不开，请从托盘打开。'));};
-  window.startPetControl=s=>{
-    s.closeMenu();s.stopMove();s.stopThrow();
-    window.petBridge?.startControl({petId:s.pet.id,size:toScreen(s.size),x:toScreen(s.pos.x+VIEW.x),y:toScreen(s.pos.y+VIEW.y),
-      assetBase:s.assetBase,idle:s.animations.idle[0],facing:s.facing});
-  };
   async function command(payload) {
     try{state=await call('/reminders',payload);signature='';paint();}
     catch(error){const p=document.createElement('p');p.textContent=error.message;pin.append(p);}
@@ -64,10 +59,6 @@
   async function loop() {
     try {
       state=await call('/reminders');connectionFailed=false;paint();
-      if(state.controlRequest && CONFIG.petIndex===0 && sprites[0]) {
-        const consumed=await call('/control',{action:'consume',id:state.controlRequest});
-        if(consumed.accepted)window.startPetControl(sprites[0]);
-      }
     }catch(error){if(!connectionFailed)console.warn('[pet-features] local reminder connection failed');connectionFailed=true;}
     setTimeout(loop,2000);
   }

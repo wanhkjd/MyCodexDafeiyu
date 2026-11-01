@@ -882,48 +882,40 @@ const displayMenuBranch = () => ({
 });
 /** 事件名 → 分类标签（无映射时用事件名本身） */
 const EVENT_LABELS = {
-	balance: "余额档位",
 	whisper: "碎碎念",
 	workStatus: "工作状态"
 };
-const leaf = (anim) => ({
-	label: anim,
-	anim
-});
 function buildMenuTree(animations) {
-	const groups = [];
-	const pools = [
-		["待机", animations.idle],
-		["转向", animations.turn],
-		["拖拽", animations.drag],
-		["点击回应", animations.clicks],
-		["移动", animations.moves.actions.map((m) => m.name)]
-	];
-	for (const [label, pool] of pools) if (pool.length) groups.push({
-		label,
-		children: pool.map(leaf)
-	});
-	const cats = (animations.categories ?? []).filter((c) => c.actions.length > 0);
-	for (const c of cats) groups.push({
-		label: c.id,
-		children: c.actions.map(leaf)
-	});
-	const events = animations.events ?? {};
-	for (const key of Object.keys(events)) {
-		const pool = events[key] ?? [];
-		const names = [];
-		for (const slot of pool) if (typeof slot === "string") names.push(slot);
-		else names.push(...slot);
-		if (names.length) groups.push({
-			label: EVENT_LABELS[key] ?? key,
-			children: names.map(leaf)
-		});
+	const groups = [], seen = new Set();
+	const leaf = anim => ({ label: animations.labels?.[anim] || anim, anim });
+	const addGroup = (label, pool) => {
+		const children = [];
+		for (const slot of pool ?? []) {
+			for (const anim of Array.isArray(slot) ? slot : [slot]) {
+				if (typeof anim !== "string" || !anim || anim === "quota" || anim.startsWith("余额-") || seen.has(anim)) continue;
+				seen.add(anim); children.push(leaf(anim));
+			}
+		}
+		if (children.length) groups.push({ label, children });
+	};
+	// Character-specific navigation must not inherit duplicate event-pool branches.
+	if (Array.isArray(animations.menuGroups)) {
+		for (const group of animations.menuGroups) addGroup(group.label, group.actions);
+	} else {
+		const pools = [
+			["待机", animations.idle],
+			["转向", animations.turn],
+			["拖拽", animations.drag],
+			["点击回应", animations.clicks],
+			["移动", animations.moves?.actions?.map(m => m.name)]
+		];
+		for (const [label, pool] of pools) addGroup(label, pool);
+		for (const category of animations.categories ?? []) addGroup(category.label || category.id, category.actions);
+		for (const [key, pool] of Object.entries(animations.events ?? {})) {
+			if (key !== "balance") addGroup(EVENT_LABELS[key] ?? key, pool);
+		}
 	}
-	if (!groups.length) return [];
-	return [{
-		label: "动作",
-		children: groups
-	}];
+	return groups.length ? [{ label: "动作", children: groups }] : [];
 }
 function isNoMirrorAnimation(categories, anim) {
 	return (categories ?? []).some((c) => c.noMirror === true && c.actions.includes(anim));

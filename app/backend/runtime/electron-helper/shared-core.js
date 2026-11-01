@@ -664,49 +664,40 @@ const displayMenuBranch = () => ({
 });
 /** 事件名 → 分类标签（无映射时用事件名本身） */
 const EVENT_LABELS = {
-	balance: "余额档位",
 	whisper: "碎碎念",
 	workStatus: "工作状态"
 };
-const leaf = (anim) => ({
-	label: anim,
-	anim
-});
 function buildMenuTree(animations) {
+	const groups = [], seen = new Set();
 	const leaf = anim => ({ label: animations.labels?.[anim] || anim, anim });
-	const groups = [];
-	const pools = [
-		["待机", animations.idle],
-		["转向", animations.turn],
-		["拖拽", animations.drag],
-		["点击回应", animations.clicks],
-		["移动", animations.moves.actions.map((m) => m.name)]
-	];
-	for (const [label, pool] of pools) if (pool.length) groups.push({
-		label,
-		children: pool.map(leaf)
-	});
-	const cats = (animations.categories ?? []).filter((c) => c.actions.length > 0);
-	for (const c of cats) groups.push({
-		label: c.label || c.id,
-		children: c.actions.map(leaf)
-	});
-	const events = animations.events ?? {};
-	for (const key of Object.keys(events)) {
-		const pool = events[key] ?? [];
-		const names = [];
-		for (const slot of pool) if (typeof slot === "string") names.push(slot);
-		else names.push(...slot);
-		if (names.length) groups.push({
-			label: EVENT_LABELS[key] ?? key,
-			children: names.map(leaf)
-		});
+	const addGroup = (label, pool) => {
+		const children = [];
+		for (const slot of pool ?? []) {
+			for (const anim of Array.isArray(slot) ? slot : [slot]) {
+				if (typeof anim !== "string" || !anim || anim === "quota" || anim.startsWith("余额-") || seen.has(anim)) continue;
+				seen.add(anim); children.push(leaf(anim));
+			}
+		}
+		if (children.length) groups.push({ label, children });
+	};
+	// Character-specific navigation must not inherit duplicate event-pool branches.
+	if (Array.isArray(animations.menuGroups)) {
+		for (const group of animations.menuGroups) addGroup(group.label, group.actions);
+	} else {
+		const pools = [
+			["待机", animations.idle],
+			["转向", animations.turn],
+			["拖拽", animations.drag],
+			["点击回应", animations.clicks],
+			["移动", animations.moves?.actions?.map(m => m.name)]
+		];
+		for (const [label, pool] of pools) addGroup(label, pool);
+		for (const category of animations.categories ?? []) addGroup(category.label || category.id, category.actions);
+		for (const [key, pool] of Object.entries(animations.events ?? {})) {
+			if (key !== "balance") addGroup(EVENT_LABELS[key] ?? key, pool);
+		}
 	}
-	if (!groups.length) return [];
-	return [{
-		label: "动作",
-		children: groups
-	}];
+	return groups.length ? [{ label: "动作", children: groups }] : [];
 }
 function isNoMirrorAnimation(categories, anim) {
 	return (categories ?? []).some((c) => c.noMirror === true && c.actions.includes(anim));
@@ -1103,9 +1094,9 @@ const trimTrail = (trail, now) => {
 	return i === 0 ? trail : trail.slice(i);
 };
 const springStep = (v, x, target, dt, power = DEFAULT_THROW_POWER) => v + ((target - x) * SPRING_K - v * SPRING_C) * power * dt;
-const softClampSpeed = (speed) => {
+const softClampSpeed = (speed, cap = MAX_THROW_SPEED) => {
 	if (speed <= 0) return 0;
-	return MAX_THROW_SPEED * (1 - Math.exp(-speed / MAX_THROW_SPEED));
+	return cap * (1 - Math.exp(-speed / cap));
 };
 const estimateReleaseVelocity = (trail, now, physics = DEFAULT_PHYSICS) => {
 	if (trail.length === 0) return null;
@@ -1149,12 +1140,27 @@ const estimateReleaseVelocity = (trail, now, physics = DEFAULT_PHYSICS) => {
 		accel = (lastSeg.speed - firstSeg.speed) / Math.max((lastSeg.tEnd - firstSeg.tEnd) / 1e3, MIN_SPAN_MS / 1e3);
 	}
 	const speedBeforeClamp = ((1 - PEAK_WEIGHT) * baseSpeed + PEAK_WEIGHT * peakSpeed) * (1 + Math.min(Math.max(accel, 0) / ACCEL_REF, 1) * ACCEL_GAIN_MAX);
-	const speed = softClampSpeed(speedBeforeClamp) * physics.throwPower;
+	const cap = physics.maxThrowSpeed || MAX_THROW_SPEED;
+	const speed = Math.min(cap, softClampSpeed(speedBeforeClamp, cap) * physics.throwPower);
 	if (speed < DEAD_ZONE_SPEED) return null;
 	return {
 		vx: baseVx / baseSpeed * speed,
 		vy: baseVy / baseSpeed * speed
 	};
+};
+// A screen edge first stops outward motion, then applies a capped rebound impulse.
+// Keeping the stop separate prevents a low impulse cap from leaving the pet outside the screen.
+const boundaryBounce = (normal, tangent, physics) => {
+	const speed = Math.abs(normal), rebound = speed * physics.restitution;
+	if (!Number.isFinite(physics.collisionMass)) return { normal: rebound, tangent };
+	const mass = Math.max(0.5, Math.min(2, physics.collisionMass));
+	const friction = Math.max(0, Math.min(0.3, physics.collisionFriction || 0));
+	const cap = Number.isFinite(physics.collisionMaxImpulse) ? Math.max(1000, Math.min(12000, physics.collisionMaxImpulse)) : 9000;
+	let jn = mass * rebound;
+	let jt = Math.min(mass * Math.abs(tangent), friction * mass * (speed + rebound));
+	const impulse = Math.hypot(jn, jt);
+	if (impulse > cap) { jn *= cap / impulse; jt *= cap / impulse; }
+	return { normal: jn / mass, tangent: tangent - Math.sign(tangent) * jt / mass };
 };
 const throwStep = (s, dtRaw, b, physics = DEFAULT_PHYSICS) => {
 	const dt = Math.min(Math.max(dtRaw, 0), MAX_STEP_DT);
@@ -1165,28 +1171,28 @@ const throwStep = (s, dtRaw, b, physics = DEFAULT_PHYSICS) => {
 	let bounced = false;
 	if (x < b.minX) {
 		x = b.minX;
-		vx = Math.abs(vx) * physics.restitution;
+		{ const bounce = boundaryBounce(vx, vy, physics); vx = bounce.normal; vy = bounce.tangent; }
 		bounced = true;
 	} else if (x > b.maxX) {
 		x = b.maxX;
-		vx = -Math.abs(vx) * physics.restitution;
+		{ const bounce = boundaryBounce(vx, vy, physics); vx = -bounce.normal; vy = bounce.tangent; }
 		bounced = true;
 	}
 	if (y < b.minY) {
 		if (physics.ceilingBounce) {
 			y = b.minY;
-			vy = Math.abs(vy) * physics.restitution;
+			{ const bounce = boundaryBounce(vy, vx, physics); vy = bounce.normal; vx = bounce.tangent; }
 			bounced = true;
 		}
 	} else if (y >= b.maxY) {
 		y = b.maxY;
 		vx *= Math.max(0, 1 - physics.groundFriction * dt);
 		if (Math.abs(vy) < REST_VY) vy = 0;
-		else vy = -Math.abs(vy) * physics.restitution;
+		else { const bounce = boundaryBounce(vy, vx, physics); vy = -bounce.normal; vx = bounce.tangent; }
 		bounced = true;
 	}
 	const speed = Math.hypot(vx, vy);
-	const atRest = y >= b.maxY - 1 && Math.abs(vy) < 1 && Math.abs(vx) < REST_VX || bounced && speed < REST_VY && Math.abs(vy) < 1;
+	const atRest = y >= b.maxY - 1 && Math.abs(vy) < 1 && Math.abs(vx) < REST_VX || !Number.isFinite(physics.collisionMass) && bounced && speed < REST_VY && Math.abs(vy) < 1;
 	return {
 		x,
 		y,
@@ -1224,13 +1230,13 @@ const throwStepRegion = (s, dtRaw, space, physics = DEFAULT_PHYSICS, lockScreen 
 	if (x < b.minX) {
 		if (locked || indexAtPoint(space.panels, pa.x - 1, cy) < 0) {
 			x = b.minX;
-			vx = Math.abs(vx) * physics.restitution;
+			{ const bounce = boundaryBounce(vx, vy, physics); vx = bounce.normal; vy = bounce.tangent; }
 			bounced = true;
 		}
 	} else if (x > b.maxX) {
 		if (locked || indexAtPoint(space.panels, rectRight(pa), cy) < 0) {
 			x = b.maxX;
-			vx = -Math.abs(vx) * physics.restitution;
+			{ const bounce = boundaryBounce(vx, vy, physics); vx = -bounce.normal; vy = bounce.tangent; }
 			bounced = true;
 		}
 	}
@@ -1242,7 +1248,7 @@ const throwStepRegion = (s, dtRaw, space, physics = DEFAULT_PHYSICS, lockScreen 
 	if (y < b.minY) {
 		if (physics.ceilingBounce && (locked || indexAtPoint(space.panels, cx, pa2.y - 1) < 0)) {
 			y = b.minY;
-			vy = Math.abs(vy) * physics.restitution;
+			{ const bounce = boundaryBounce(vy, vx, physics); vy = bounce.normal; vx = bounce.tangent; }
 			bounced = true;
 		}
 	} else if (y >= b.maxY) {
@@ -1250,14 +1256,14 @@ const throwStepRegion = (s, dtRaw, space, physics = DEFAULT_PHYSICS, lockScreen 
 			y = b.maxY;
 			vx *= Math.max(0, 1 - physics.groundFriction * dt);
 			if (Math.abs(vy) < REST_VY) vy = 0;
-			else vy = -Math.abs(vy) * physics.restitution;
+			else { const bounce = boundaryBounce(vy, vx, physics); vy = -bounce.normal; vx = bounce.tangent; }
 			bounced = true;
 		}
 	}
 	cur = pick$1(screenOfBox(space, x, y));
 	b = space.bounds[cur];
 	const speed = Math.hypot(vx, vy);
-	const atRest = y >= b.maxY - 1 && Math.abs(vy) < 1 && Math.abs(vx) < REST_VX || bounced && speed < REST_VY && Math.abs(vy) < 1;
+	const atRest = y >= b.maxY - 1 && Math.abs(vy) < 1 && Math.abs(vx) < REST_VX || !Number.isFinite(physics.collisionMass) && bounced && speed < REST_VY && Math.abs(vy) < 1;
 	return {
 		x,
 		y,

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { dragSettingsState, saveDragSettings } from '../runtime/drag-settings.mjs';
 import { petSizeState, resizePetConfig } from '../runtime/pet-size.mjs';
 import { applyCharacterConfig, characterFile, characterState, saveCharacter, resolveCharacterAsset, CHARACTER_ASSET_ROOT } from '../runtime/characters.mjs';
 import { createReadStream, existsSync, fstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -3002,7 +3003,8 @@ function apply(ctx) {
 		try {
 			return effectivePetList().filter((p) => isDesktopVisible$1(p.display)).map((p) => ({
 				id: String(p.id),
-				size: Number(p.size),
+				// Helper initial window matches the derived render size, not the shared setting.
+				size: Number(p.renderSize ?? p.size),
 				character: p.character ? { geometry: p.character.geometry } : undefined
 			}));
 		} catch {
@@ -3148,6 +3150,13 @@ function apply(ctx) {
 	const handlePetRoute = async (rawUrl, method, body) => {
 		const url = new URL(rawUrl, "http://localhost");
 		const rest = decodeURIComponent(url.pathname.slice(ROUTE_PREFIX.length + 1));
+		if (rest === "drag-settings") {
+			if (method !== "GET" && method !== "POST") return { kind: "json", status: 405, obj: { ok: false, message: "method not allowed" } };
+			try {
+				const obj = method === "GET" ? dragSettingsState(dshHomeDir()) : saveDragSettings(dshHomeDir(), JSON.parse(body ?? ""));
+				return { kind: "json", status: 200, obj };
+			} catch (error) { return { kind: "json", status: 400, obj: { ok: false, message: error.message } }; }
+		}
 		if (rest === "pet-size") {
 			if (method === "GET") return { kind: "json", status: 200, obj: petSizeState(readAllConfig(configPaths)) };
 			if (method !== "POST") return { kind: "json", status: 405, obj: { ok: false, message: "method not allowed" } };

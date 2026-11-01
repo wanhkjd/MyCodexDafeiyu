@@ -8,10 +8,9 @@
   for(const id of ['chat-new','chat-sessions','chat-memory','chat-send','chat-input'])get(id).disabled=sending||serverBusy;
   get('chat-memory').checked=s.useMemory;
   const third=s.provider?.kind==='third-party';
-  get('chat-model-source').textContent=third?`模型来源：第三方 API「${s.provider.name || '未配置'}」 · ${s.provider.model || '请补全配置'}`:'模型来源：本机 Codex 配置（含 CC Switch 中转），不限制模型系列或思考档位';
-  get('chat-hint').textContent=third?`当前用第三方 API「${s.provider.name}」· ${s.provider.model} · 发送才计费 · 回复逐字显示`:'当前用本机 Codex（含 CC Switch 中转）· 发送才调用模型 · 回复逐字显示';
+  get('chat-model-source').textContent=third?`模型：第三方 API「${s.provider.name || '未配置'}」 · ${s.provider.model || '请补全配置'}`:'模型：本机 Codex';
   get('chat-memory-note').hidden=!third;get('chat-memory-note').textContent=third?`开启时，画像会随消息一起发给「${s.provider.name}」。`:'';
-  get('memory-preview').textContent=s.memory?.available?s.memory.text:'可以直接在下方填写画像，不需要登录任何账号。未开启或没有本地摘要时，不会读取或猜测个人信息。';
+  get('memory-preview').textContent=s.memory?.available?s.memory.text:'暂无画像';
   if(!get('profile-notes').dataset.dirty&&document.activeElement!==get('profile-notes'))get('profile-notes').value=s.memory?.notes||'';
   get('profile-save').disabled=sending||serverBusy;
   renderPersona(s);
@@ -55,9 +54,9 @@
  get('chat-sessions').onchange=async()=>{try{render(await command({action:'select',id:get('chat-sessions').value}));get('chat-result').textContent='';}catch(e){get('chat-result').textContent=e.message;}};
  get('chat-memory').onchange=async()=>{try{render(await command({action:'settings',useMemory:get('chat-memory').checked}));}catch(e){get('chat-result').textContent=e.message;}};
  get('profile-notes').oninput=()=>{get('profile-notes').dataset.dirty='1';};
- get('profile-save').onclick=async()=>{try{const s=await command({action:'profile',notes:get('profile-notes').value});delete get('profile-notes').dataset.dirty;render(s);get('profile-status').textContent='已保存，下次聊天就会参考。只保存在桌宠里，不修改 Codex 原始记忆。';}catch(e){get('profile-status').textContent=e.message;}};
+ get('profile-save').onclick=async()=>{try{const s=await command({action:'profile',notes:get('profile-notes').value});delete get('profile-notes').dataset.dirty;render(s);get('profile-status').textContent='画像已保存';}catch(e){get('profile-status').textContent=e.message;}};
  for(const id of ['persona-name','persona-call','persona-preset','persona-notes','persona-state','persona-actions'])get(id).addEventListener('input',()=>{get('persona-box').dataset.dirty='1';personaNotes();});
- get('persona-save').onclick=async()=>{const box=get('persona-box'),character=box.dataset.character||lastPersona?.character||'dafeiyu';try{const s=await command({action:'persona',character,...personaFields()});if(box.dataset.character===character)delete box.dataset.dirty;render(s);get('persona-status').textContent='已保存，下一条消息生效。';}catch(e){get('persona-status').textContent=e.message;}};
+ get('persona-save').onclick=async()=>{const box=get('persona-box'),character=box.dataset.character||lastPersona?.character||'dafeiyu';try{const s=await command({action:'persona',character,...personaFields()});if(box.dataset.character===character)delete box.dataset.dirty;render(s);get('persona-status').textContent='已保存';}catch(e){get('persona-status').textContent=e.message;}};
  get('chat-form').onsubmit=async event=>{
   event.preventDefault();const text=get('chat-input').value.trim();if(!text||sending||serverBusy)return;
   sending=true;get('chat-send').disabled=true;get('chat-result').textContent='收到！本鱼来啦…';expand(true);

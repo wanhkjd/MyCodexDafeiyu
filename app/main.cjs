@@ -6,6 +6,7 @@ const { spawn, execFile } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const { prepareData, checkPackage, readBackendAddress, backendEnvironment } = require('./runtime-utils.cjs');
 const { createBiliLogin } = require('./bili-login.cjs');
+const { DISPLAY_DEFAULTS, readDisplaySettings, saveDisplaySettings } = require('./display-settings.cjs');
 app.setAppUserModelId('local.codexpet.bluemaid');
 const root = __dirname;
 const icon = path.join(root, 'assets', 'icon.ico');
@@ -35,6 +36,9 @@ if (process.env.CODEX_PET_FRAMES) {
     const token = randomBytes(32).toString('hex');
     const headers = { Authorization: 'Bearer ' + token };
     const control = path.join(data, 'visibility.json');
+    const displayFile = path.join(data, 'dsh-pet', 'display-settings.json');
+    let displaySettings = { ...DISPLAY_DEFAULTS };
+    try { displaySettings = readDisplaySettings(displayFile); } catch {}
     try { visible = JSON.parse(fs.readFileSync(control, 'utf8')).visible !== false; } catch {}
     const backend = path.join(root, 'backend');
     const log = fs.createWriteStream(path.join(userRoot, 'app.log'), { flags: 'a' });
@@ -46,7 +50,7 @@ if (process.env.CODEX_PET_FRAMES) {
     function setVisible(value) {
       visible = value;
       const temporary = control + '.tmp';
-      fs.writeFileSync(temporary, JSON.stringify({ visible }));
+      fs.writeFileSync(temporary, JSON.stringify({ visible, displaySettings }));
       fs.renameSync(temporary, control);
       updateTray();
     }
@@ -168,7 +172,7 @@ if (process.env.CODEX_PET_FRAMES) {
       });
     }
     function createPanel() {
-      panel = new BrowserWindow({ width: 490, height: 820, minWidth: 440, minHeight: 640,
+      panel = new BrowserWindow({ width: 900, height: 680, minWidth: 760, minHeight: 560,
         title: 'Codex-dafeiyu', icon, backgroundColor: '#f6f8ff', autoHideMenuBar: true,
         webPreferences: { preload: path.join(root, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
       panel.loadFile(path.join(root, 'panel.html'));
@@ -217,6 +221,20 @@ if (process.env.CODEX_PET_FRAMES) {
       });
       ipcMain.handle('pet:action', async (_event, action, message) => {
         try {
+        if (action === 'display-settings-state') {
+          return { ok: true, settings: readDisplaySettings(displayFile) };
+        }
+        if (action === 'display-settings-save') {
+          if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '显示配置仅允许从管理面板操作' };
+          displaySettings = saveDisplaySettings(displayFile, message);
+          setVisible(visible);
+          return { ok: true, settings: displaySettings };
+        }
+        if (action === 'drag-settings-state') return await request('/dsh-pet-7340/drag-settings');
+        if (action === 'drag-settings-save') {
+          if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '拖拽配置仅允许从管理面板操作' };
+          return await request('/dsh-pet-7340/drag-settings', 'POST', message);
+        }
         if (action === 'pet-size-state') return await request('/dsh-pet-7340/pet-size');
         if (action === 'pet-size-save') {
           if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '大小配置仅允许从管理面板操作' };

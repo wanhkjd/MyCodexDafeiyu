@@ -2,7 +2,7 @@
 'use strict';
 const path = require('node:path');
 
-function createRiceFeeding({ BrowserWindow, ipcMain, screen, isOwner, scale = () => 1 }) {
+function createRiceFeeding({ BrowserWindow, ipcMain, screen, isOwner, scale = () => 1, alwaysOnTop = () => true }) {
   const targets = new Map();
   const sessions = new Map();
   let sequence = 0;
@@ -73,12 +73,12 @@ function createRiceFeeding({ BrowserWindow, ipcMain, screen, isOwner, scale = ()
       return;
     }
     const food = new BrowserWindow({ ...bounds, title: '白饭 · 拖到桌宠身上', frame: false, transparent: true, show: false,
-      alwaysOnTop: true, skipTaskbar: true, resizable: false, maximizable: false, minimizable: false, hasShadow: false, focusable: false,
+      alwaysOnTop: alwaysOnTop(), skipTaskbar: true, resizable: false, maximizable: false, minimizable: false, hasShadow: false, focusable: false,
       webPreferences: { preload: path.join(__dirname, 'rice-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
     const s = { id: ++sequence, owner, food, dragging: false, over: false, pending: null, timer: null };
     sessions.set(owner.id, s);
     notify(owner, 'pet:rice-state', { active: true, session: s.id, over: false });
-    food.setAlwaysOnTop(true, 'screen-saver');
+    food.setAlwaysOnTop(alwaysOnTop(), 'screen-saver');
     food.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     food.webContents.on('will-navigate', e => e.preventDefault());
     food.webContents.on('render-process-gone', () => cancel(owner));
@@ -146,6 +146,9 @@ function createRiceFeeding({ BrowserWindow, ipcMain, screen, isOwner, scale = ()
     owner.on('closed', () => { cancel(owner); targets.delete(owner.id); });
   }
   function cancelAll() { for (const s of [...sessions.values()]) cancel(s.owner); }
-  return { attach, cancelAll };
+  function updateTopmost() {
+    for (const s of sessions.values()) if (alive(s.food) && s.food.isAlwaysOnTop() !== alwaysOnTop()) s.food.setAlwaysOnTop(alwaysOnTop(), 'screen-saver');
+  }
+  return { attach, cancelAll, updateTopmost };
 }
 module.exports = { createRiceFeeding };

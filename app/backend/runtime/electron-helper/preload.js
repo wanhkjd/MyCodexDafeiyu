@@ -20,8 +20,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petBridge', {
+  onDisplaySettings(cb) { ipcRenderer.on('pet:display-settings', (_e, settings) => cb(settings)); },
+  onForcedPassThrough(cb) { ipcRenderer.on('pet:forced-pass-through', (_e, active) => cb(active === true)); },
   onLifecycle(cb) { ipcRenderer.on('pet:lifecycle', (_e,phase)=>cb(phase)); },
-  startControl(info) { ipcRenderer.send('pet:start-control',info); },
   openHarness() { ipcRenderer.send('pet:open-harness'); },
   onLaunchError(cb) { ipcRenderer.on('pet:launch-error', (_e, message) => cb(message)); },
   openCodex() { ipcRenderer.send('pet:open-codex'); },

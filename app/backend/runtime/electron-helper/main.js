@@ -60,6 +60,8 @@ const { HOST_POLL_MS, hostIsGone, isBrokenPipeError, parseHostPid } = require('.
 const { shouldLinearize, resolveForcedScale, resolvePetScale } = require('./dpi-linearization.js');
 const { buildDeskGeometry } = require('./desktop-geometry.js');
 const { createRiceFeeding } = require('./rice-feeding.js');
+const { normalizeDisplaySettings, displayPolicy } = require('../../../display-settings.cjs');
+const { createDisplayMonitor } = require('../../../windows-display-monitor.cjs');
 
 // 允许无用户手势直接播放（余额动画等）
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -283,8 +285,24 @@ if (BRIDGE) {
 
 /** 窗口表：petId -> BrowserWindow */
 const windows = new Map();
+let displayOptions = normalizeDisplaySettings();
+let appliedDisplayOptions = '';
+let manualVisible = true, forcePassThrough = false, applyingDisplayPolicy = false, displayQuitting = false;
+function refreshDisplayControl() {
+  if (!process.env.CODEX_PET_CONTROL) {
+    displayOptions = normalizeDisplaySettings({ autoHideFullscreen: false, cursorHidePassThrough: false });
+    return;
+  }
+  try {
+    const saved = JSON.parse(readFileSync(process.env.CODEX_PET_CONTROL, 'utf8'));
+    if (!saved || typeof saved !== 'object') return;
+    manualVisible = saved.visible !== false;
+    displayOptions = normalizeDisplaySettings(saved.displaySettings);
+  } catch {} // Keep the last valid state during an atomic replacement or transient read failure.
+}
+refreshDisplayControl();
 const riceFeeding = createRiceFeeding({ BrowserWindow, ipcMain, screen,
-  isOwner: win => [...windows.values()].includes(win), scale: () => petScale() });
+  isOwner: win => [...windows.values()].includes(win) && !forcePassThrough, scale: () => petScale(), alwaysOnTop: () => displayOptions.alwaysOnTop });
 app.on('before-quit', () => riceFeeding.cancelAll());
 
 /** win.id -> 上一次**请求**的内容区矩形（"x,y,w,h"）：pet:set-bounds 的去重基准，见那里的注释 */
@@ -326,8 +344,9 @@ const windowIgnore = new Map();
 
 /** 翻转整窗穿透的**唯一出口**：状态与 windowIgnore 镜像永远一起更新（穿透期间保留 forward） */
 function setWindowIgnore(win, ignore) {
-  win.setIgnoreMouseEvents(ignore, { forward: true });
-  windowIgnore.set(win.id, ignore);
+  const effective = !!ignore || forcePassThrough || !win.isVisible();
+  win.setIgnoreMouseEvents(effective, { forward: true });
+  windowIgnore.set(win.id, effective);
 }
 
 /** 兜底通道的光标轮询间隔（ms，与 issue #55 报告者实测值一致） */
@@ -372,6 +391,47 @@ function stopGame(position) {
 function resetInput(win) {
   resetWindowInput(win,[inputBusy,inputRegions,offBodyMs,lastRequestedBounds],setWindowIgnore);
 }
+const displayMonitor = createDisplayMonitor({
+  ownPids: [Number(process.env.CODEX_PET_MANAGER_PID)].filter(Number.isInteger),
+  onChange: () => applyDisplayPolicy(),
+  onError: message => console.warn('[pet-display] ' + message),
+});
+function applyDisplayPolicy() {
+  if (displayQuitting || applyingDisplayPolicy) return;
+  applyingDisplayPolicy = true;
+  try {
+    refreshDisplayControl();
+    if (displayOptions.autoHideFullscreen || displayOptions.cursorHidePassThrough) displayMonitor.start();
+    else displayMonitor.stop();
+    const policy = displayPolicy({ visible: manualVisible, settings: displayOptions, native: displayMonitor.current(), game: !!gameWindow });
+    const optionsKey = JSON.stringify(displayOptions);
+    const optionsChanged = appliedDisplayOptions !== optionsKey;
+    appliedDisplayOptions = optionsKey;
+    const passChanged = forcePassThrough !== policy.passThrough;
+    forcePassThrough = policy.passThrough;
+    if (passChanged && forcePassThrough) riceFeeding.cancelAll();
+    for (const win of windows.values()) {
+      if (win.isDestroyed()) continue;
+      if (optionsChanged) win.webContents.send('pet:display-settings', displayOptions);
+      if (win.isAlwaysOnTop() !== policy.alwaysOnTop) win.setAlwaysOnTop(policy.alwaysOnTop, process.env.CODEX_PET_HELPER ? 'floating' : 'screen-saver');
+      if (passChanged) {
+        resetInput(win);
+        win.webContents.send('pet:forced-pass-through', forcePassThrough);
+      }
+      if (policy.visible && win.webContents.isLoadingMainFrame()) continue;
+      transitionWindow(win, policy.visible, {
+        reset: resetInput,
+        notify: (target, phase) => target.webContents.send('pet:lifecycle', phase),
+        geometry: target => target.webContents.send('pet:displays', deskGeometry()),
+        health: recoverHealth,
+      });
+      if (forcePassThrough && windowIgnore.get(win.id) !== true) setWindowIgnore(win, true);
+    }
+    riceFeeding.updateTopmost();
+    if (!manualVisible && gameWindow) stopGame();
+  } finally { applyingDisplayPolicy = false; }
+}
+app.on('before-quit', () => { displayQuitting = true; displayMonitor.stop(); });
 function recoverHealth(win) {
   const checkedAt=Date.now();
   const timer=setTimeout(()=>failed(),6000);
@@ -460,7 +520,7 @@ function createPetWindows(replacement) {
       enableLargerThanScreen: true,
       transparent: true,
       frame: false,
-      alwaysOnTop: true,
+      alwaysOnTop: displayOptions.alwaysOnTop,
       skipTaskbar: true,
       resizable: false,
       hasShadow: false,
@@ -480,7 +540,7 @@ function createPetWindows(replacement) {
       },
     });
     riceFeeding.attach(win);
-    win.setAlwaysOnTop(true, process.env.CODEX_PET_HELPER ? 'floating' : 'screen-saver');
+    win.setAlwaysOnTop(displayOptions.alwaysOnTop, process.env.CODEX_PET_HELPER ? 'floating' : 'screen-saver');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     // 窗口被其他窗口（另一只宠物）完全遮挡时，Chromium 默认会暂停本窗口渲染，
     // 导致大宠物移动盖过小宠物时小宠物显示为"消失"。关闭后台节流，让被遮挡
@@ -501,19 +561,21 @@ function createPetWindows(replacement) {
     // webPreferences.zoomFactor 对 show:false 的窗口不生效（实测），须在加载完成后设置。
     win.webContents.on('did-finish-load', () => {
       win.webContents.setZoomFactor(scale);
+      win.webContents.send('pet:display-settings', displayOptions);
+      win.webContents.send('pet:forced-pass-through', forcePassThrough);
       win.webContents.send('pet:lifecycle', win.isVisible() ? 'resume' : 'suspend');
     });
     // 默认整窗点击穿透（renderer 在光标进/出身体命中区时经 IPC 翻转可交互）；
     // forward:true 保证穿透期间 mousemove 仍转发进渲染端做命中判定。
     setWindowIgnore(win, true);
-    win.once('ready-to-show', () => { if (!process.env.CODEX_PET_CONTROL) win.showInactive(); });
+    win.once('ready-to-show', () => applyDisplayPolicy());
     // [#55 兜底显示] paintWhenInitiallyHidden:false 时渲染器可能不产出首帧，ready-to-show 便永不触发
     // （Electron 文档原文：ready-to-show "will never fire if you use paintWhenInitiallyHidden: false"），
     // 而 show() 只挂在它上面 → 窗口永远隐藏（进程活着、宠物逻辑照跑，桌面上什么都没有）。
     // 页面加载完成后强制兜底一次；zoomFactor 的设置在更早注册的 did-finish-load 里，顺序不受影响。
     win.webContents.once('did-finish-load', () => {
       setTimeout(() => {
-        if (!process.env.CODEX_PET_CONTROL && !win.isDestroyed() && !win.isVisible()) win.showInactive();
+        if (!win.isDestroyed()) applyDisplayPolicy();
       }, 400);
     });
     // [#55 兜底交互] 上面的翻转链路只有「Electron forward 鼠标钩子 → 渲染端命中判定」一个入口，
@@ -525,6 +587,10 @@ function createPetWindows(replacement) {
     // 本进程无从判断这件事——光看光标位置与窗口位移分不清"拖拽跟手"和"漫游/抛掷"，所以由渲染端上报。
     const pointerTimer = setInterval(() => {
       if (win.isDestroyed()) return;
+      if (forcePassThrough || !win.isVisible()) {
+        if (windowIgnore.get(win.id) !== true) setWindowIgnore(win, true);
+        return;
+      }
       const b = win.getBounds();
       if (b.width < 8 || b.height < 8) return; // 尺寸还没落定（renderer 首帧上报前）
       const ignoring = windowIgnore.get(win.id) !== false;
@@ -551,9 +617,9 @@ function createPetWindows(replacement) {
         destroyed: win.isDestroyed(),
         visible: win.isVisible(),
       });
-      if (!due) return;
+      if (!displayOptions.alwaysOnTop || !due) return;
       lastTopmostAssertMs = nowMs;
-      win.setAlwaysOnTop(true, 'screen-saver');
+      win.setAlwaysOnTop(true, process.env.CODEX_PET_HELPER ? 'floating' : 'screen-saver');
     }, TOPMOST_WATCHDOG_TICK_MS);
     win.on('closed', () => {
       clearInterval(pointerTimer);
@@ -709,25 +775,7 @@ app.whenReady().then(() => {
     setTimeout(() => app.exit(0), 0);
     return;
   }
-  if (process.env.CODEX_PET_CONTROL) {
-    const applyVisibility = () => {
-      try {
-        // Visibility is manual only; fullscreen apps never hide or pause the pet.
-        const visible = JSON.parse(readFileSync(process.env.CODEX_PET_CONTROL, 'utf8')).visible !== false;
-        for (const win of windows.values()) {
-          if (win.isDestroyed()) continue;
-          if (transitionWindow(win, visible && !gameWindow, {
-            reset: resetInput,
-            notify: (target,phase)=>target.webContents.send('pet:lifecycle',phase),
-            geometry: target=>target.webContents.send('pet:displays',deskGeometry()),
-            health: recoverHealth,
-          })) console.log('[pet-recovery] visibility '+(visible?'resume':'suspend'));
-        }
-        if (!visible && gameWindow) stopGame();
-      } catch {}
-    };
-    setInterval(applyVisibility, 500).unref();
-  }
+
   console.error(
     '[dsh-pet-desktop-helper] displays: ' +
       JSON.stringify(deskGeometry()) +
@@ -754,6 +802,9 @@ app.whenReady().then(() => {
   }
 
   createPetWindows();
+  applyDisplayPolicy();
+  const displayTimer = setInterval(applyDisplayPolicy, 500); displayTimer.unref();
+  app.on('before-quit', () => clearInterval(displayTimer));
 
   // 宠物窗口跟随：renderer 逐帧上报窗口内容区位置/尺寸
   ipcMain.on('pet:set-bounds', (event, bounds) => {
@@ -795,29 +846,6 @@ app.whenReady().then(() => {
         vy: Number.isFinite(vy) ? vy : 0,
       });
     }
-  });
-  ipcMain.on('pet:start-control',(event,info)=>{
-    const owner=BrowserWindow.fromWebContents(event.sender);
-    if(gameWindow || !owner || !owner.isVisible() || !info || ![info.x,info.y,info.size].every(Number.isFinite) || info.size<100 || info.size>1800)return;
-    if(typeof info.assetBase!=='string' || !info.assetBase.startsWith('dsh-pet-bridge://dsh-pet/dsh-pet-7340/thumb/'))return;
-    const display=screen.getDisplayNearestPoint({x:Math.round(info.x+info.size/2),y:Math.round(info.y+info.size/3)});
-    const area=display.workArea;
-    riceFeeding.cancelAll();
-    gameInfo={...info,area};gameOwner=owner;
-    const game=new BrowserWindow({x:area.x,y:area.y,width:area.width,height:area.height,frame:false,transparent:true,show:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,hasShadow:false,focusable:true,
-      webPreferences:{preload:path.join(__dirname,'game-preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
-    gameWindow=game;
-    game.webContents.setWindowOpenHandler(()=>({action:'deny'}));
-    game.webContents.on('will-navigate',e=>e.preventDefault());
-    game.webContents.on('render-process-gone',()=>stopGame());
-    game.once('ready-to-show',()=>{
-      if(gameWindow!==game)return;
-      for(const win of windows.values())transitionWindow(win,false,{reset:resetInput,notify:(w,phase)=>w.webContents.send('pet:lifecycle',phase)});
-      game.show();game.focus();
-      game.on('blur',()=>{if(gameWindow===game)stopGame();});
-    });
-    game.on('closed',()=>{if(gameWindow===game)stopGame();});
-    game.loadFile(path.join(__dirname,'game.html')).catch(()=>stopGame());
   });
   ipcMain.handle('pet:game-init',event=>event.sender===gameWindow?.webContents?gameInfo:null);
   ipcMain.on('pet:game-position',(event,position)=>{
@@ -897,7 +925,9 @@ app.whenReady().then(() => {
     const rects = input.rects.filter(
       (r) => r && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0,
     );
-    inputRegions.set(win.id, { dragging: input.dragging === true, rects });
+    const body = Array.isArray(input.body) && input.body.length === 4 && input.body.every(p => p && [p.x,p.y].every(Number.isFinite))
+      ? input.body.map(p => ({x:p.x,y:p.y})) : undefined;
+    inputRegions.set(win.id, { dragging: input.dragging === true, rects, body });
   });
 
   // 右键菜单「打开网站」：交给**系统默认浏览器**打开（等效于网页里 Ctrl+点击链接新标签页），
