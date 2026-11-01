@@ -14,7 +14,7 @@
     "package:win": "node scripts/package.mjs"
   },
   "dependencies": {
-    "@electron-internal/extract-zip": "1.0.5",
+    "@electron-internal/extract-zip": "1.0.7",
     "@electron/get": "5.1.0",
     "qrcode": "1.5.4"
   },
