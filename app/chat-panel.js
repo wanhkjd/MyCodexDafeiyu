@@ -31,10 +31,10 @@
   const p=s.persona;if(!p)return;
   const box=get('persona-box'),select=get('persona-preset');
   // Skin changes never replace the shared persona or an unsaved draft.
-  lastPersona=p;name=p.name||'';
+  lastPersona=p;name=p.name||({bailong:'白龙'}[p.character])||'';
   if(select.options.length!==p.presets.length)select.replaceChildren(...p.presets.map(item=>{const o=document.createElement('option');o.value=item.id;o.textContent=item.name;return o;}));
   if(!box.dataset.dirty&&!box.contains(document.activeElement)){const values=p;get('persona-name').value=values.name;get('persona-call').value=values.call;select.value=values.preset;get('persona-notes').value=values.notes;get('persona-state').checked=values.shareState;get('persona-actions').checked=values.actions;box.dataset.character='shared';}
-  get('persona-name').placeholder='不填就叫大肥鱼';
+  get('persona-name').placeholder='不填就叫'+({bailong:'白龙'}[p.character]||'大肥鱼');
   get('chat-history').setAttribute('aria-label',`和${name||'大肥鱼'}的聊天记录`);
   get('chat-input').placeholder='今天想聊点什么？';
   personaNotes();

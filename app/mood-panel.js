@@ -4,7 +4,7 @@
   const NAMES = { 睡着: '睡着了', 傲娇: '有点傲娇', 担心: '在担心你', 开心: '很开心', 饿: '饿了', 困: '困了', 寂寞: '有点寂寞', 元气: '元气满满', 平常: '心情平常' };
   const card = document.createElement('section');
   card.id = 'mood-card';
-  card.className = 'quota-card';
+  card.className = 'panel-card';
   card.innerHTML = `<div class="section-title"><h2>大肥鱼现在</h2><label class="mood-toggle"><input type="checkbox" id="mood-enabled">启用心情</label></div>
 <p class="mood-head"><span id="mood-emoji" class="mood-emoji" aria-hidden="true"></span><strong id="mood-name">正在感受中…</strong></p>
 <p id="mood-reason" class="muted"></p><div id="mood-bars"></div><p id="mood-meals" class="muted"></p><p id="mood-talk" class="muted"></p>
@@ -17,8 +17,8 @@
   const get = id => document.getElementById(id);
 
   function bar(label, value) {
-    const row = document.createElement('div'); row.className = 'quota-row';
-    const line = document.createElement('div'); line.className = 'quota-label';
+    const row = document.createElement('div'); row.className = 'meter-row';
+    const line = document.createElement('div'); line.className = 'meter-label';
     const name = document.createElement('span'); name.textContent = label;
     const number = document.createElement('strong'); number.textContent = String(value);
     line.append(name, number);

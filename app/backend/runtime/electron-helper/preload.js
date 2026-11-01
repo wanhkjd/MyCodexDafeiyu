@@ -13,9 +13,6 @@
 //     pointermove/pointerup 就断了：宠物会按旧速度飞出去，连松手的 pointerup 都收不到）。
 //     只在状态翻转时发一次（幂等，不逐帧）。
 //   - 宠物间碰撞（跨窗，主进程 broker）：
-//       reportFlight：飞行中每 ~30ms 上报自己的状态（位置/速度/尺寸）→ 主进程汇聚并广播；
-//       onFlightStates：订阅主进程广播的全量宠物状态（碰撞检测用其它宠物的最新位置/速度）；
-//       reportCollide：本窗飞行方检测到撞到 targetId → 主进程把动量结果转发给目标窗；
 //       onPetHit：订阅「你被撞了」→ 用新初速 startThrow 抛出去（与浏览器 onHit 同语义）。
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -40,8 +37,8 @@ contextBridge.exposeInMainWorld('petBridge', {
     ipcRenderer.on('pet:rice-drop', handler);
     return () => ipcRenderer.removeListener('pet:rice-drop', handler);
   },
-  setBounds(x, y, width, height, boxX, boxY, size, bottomPad, vx, vy) {
-    ipcRenderer.send('pet:set-bounds', { x, y, width, height, boxX, boxY, size, bottomPad, vx, vy });
+  setBounds(x, y, width, height, boxX, boxY, size, bottomPad, vx, vy, hitRect, collidable, collisionOptions) {
+    ipcRenderer.send('pet:set-bounds', { x, y, width, height, boxX, boxY, size, bottomPad, vx, vy, hitRect, collidable, collisionOptions });
   },
   setInteractive(interactive) {
     ipcRenderer.send('pet:set-interactive', !!interactive);
@@ -58,15 +55,6 @@ contextBridge.exposeInMainWorld('petBridge', {
     ipcRenderer.send('pet:open-site', { url });
   },
   // ---- 宠物间碰撞（跨窗 broker）----
-  reportFlight(state) {
-    ipcRenderer.send('pet:report-flight', state);
-  },
-  onFlightStates(cb) {
-    ipcRenderer.on('pet:flight-states', (e, states) => cb(states));
-  },
-  reportCollide(targetId, vx, vy) {
-    ipcRenderer.send('pet:collide-result', { targetId, vx, vy });
-  },
   onPetHit(cb) {
     ipcRenderer.on('pet:hit', (e, payload) => cb(payload));
   },

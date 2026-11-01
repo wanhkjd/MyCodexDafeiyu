@@ -89,7 +89,7 @@ var EdgePeek = (() => {
     }
     setEnabled(active) { const next=active===true;if(next===this.enabled)return;this.enabled=next;if(!next)this.release(true); }
     attach(pos=this.s.pos) {
-      if(!this.enabled || this.s.suspended || this.s.forcedPassThrough || this.s.riceActive || this.s.feedingBusy)return false;
+      if(!this.enabled || this.s.dragSettings?.lockPosition || this.s.suspended || this.s.forcedPassThrough || this.s.riceActive || this.s.feedingBusy)return false;
       const dock=detect({pos,hit:this.s.hitRect,panels:this.env.panels(),areas:this.env.areas()});
       if(!dock)return false;
       this.s.stopThrow();this.s.stopSquash();this.s.stopMove();

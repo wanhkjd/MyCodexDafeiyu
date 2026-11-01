@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { applyPositionConfig, positionSettingsState, savePositionSettings, createPositionTracker } from '../runtime/position-settings.mjs';
 import { dragSettingsState, saveDragSettings } from '../runtime/drag-settings.mjs';
 import { petSizeState, resizePetConfig } from '../runtime/pet-size.mjs';
 import { applyCharacterConfig, characterFile, characterState, saveCharacter, resolveCharacterAsset, CHARACTER_ASSET_ROOT } from '../runtime/characters.mjs';
@@ -40,9 +41,7 @@ const ID_FORBIDDEN = /[\\/:\x00-\x1f]/;
 *   - `whisperModel` / `chatModel`：碎碎念 / 对话用哪个模型 = 成本与能力偏好
 *   - `whisperImageEnabled` / `chatImageEnabled`：要不要把表情包清单附进请求 = token 成本
 *   - `chatImageLimit`：对话那张清单**最多几张**——同属 token 成本（清单每条消息都附）
-*   - `eventsRefreshSec`：多久调一次模型 / 拉一次余额 = 成本与节奏。注意它内部两个键的**消费端**
-*     不同：`.whisper` 按宠物所属条目读（种类可覆盖）；`.balance` 只读 main 条目
-*     （余额数据一份 + host 只有一个定时器，架构上给不了每种类一个周期）
+*   - `eventsRefreshSec.whisper`：按宠物所属条目读取的碎碎念周期（种类可覆盖）
 *   - `physics`：拖拽抛掷手感；`petCollision` 更是**跨宠物**行为（相撞按动量守恒弹开），
 *     按种类分在语义上站不住：两只不同种类的宠物相撞时用谁的系数？
 *   - `confineToScreen`：多屏是用户环境 / 使用习惯，不是宠物属性
@@ -168,8 +167,7 @@ function animationsValid(a) {
 			for (const name of slot) if (typeof name !== "string" || name.length === 0) return false;
 		} else return false;
 	}
-	const balance = evEntries.balance;
-	return Array.isArray(balance) && balance.length > 0;
+	return true;
 }
 /** animationWeights 段校验（idle/turn/move 三个非负数字） */
 function weightsValid(w) {
@@ -353,7 +351,6 @@ function mergePet(base, raw, label, seenIds) {
 		id,
 		name,
 		size: petNumber(p.size, base.size, 1, label, "size", id),
-		balanceEnabled: petBool(p.balanceEnabled, base.balanceEnabled, label, "balanceEnabled", id),
 		whisperEnabled: petBool(p.whisperEnabled, base.whisperEnabled, label, "whisperEnabled", id),
 		workStatusEnabled: petBool(p.workStatusEnabled, base.workStatusEnabled, label, "workStatusEnabled", id),
 		fixedEnabled: petBool(p.fixedEnabled, base.fixedEnabled, label, "fixedEnabled", id),
@@ -384,8 +381,12 @@ function readAllConfig(paths) {
 		}
 		out[file.prefix] = mergeEntry(filePetBase, parsed, file.prefix + "-config.json", basePets, seenIds);
 	}
-	const merged = applyCharacterConfig(out, dirname(dirname(paths.userFile)));
-  for (const conf of Object.values(merged)) for (const pet of conf?.pets || []) pet.balanceEnabled = false;
+	const merged = applyPositionConfig(applyCharacterConfig(out, dirname(dirname(paths.userFile))), dirname(dirname(paths.userFile)));
+  for (const conf of Object.values(merged)) {
+    if (conf?.animations?.events) delete conf.animations.events.balance;
+    if (conf?.eventsRefreshSec) delete conf.eventsRefreshSec.balance;
+    for (const pet of conf?.pets || []) delete pet.balanceEnabled;
+  }
   return merged;
 }
 function flattenPetList(merged) {
@@ -412,6 +413,7 @@ function saveUserConfig(raw, existing) {
 	const out = [];
 	for (const p of arr) {
 		if (!p || typeof p !== "object") return null;
+		if (p.companion === true) continue; // Derived companion lives in character.json, never persist it as a third pet.
 		const pp = p;
 		const id = String(pp.id ?? "");
 		if (!id || id.length > 64 || ID_FORBIDDEN.test(id)) return null;
@@ -422,8 +424,6 @@ function saveUserConfig(raw, existing) {
 			console.warn(`dsh-pet: pet「${id}」缺少 name，已按默认 ${id}（宠物 id）处理`);
 			name = id;
 		}
-		const balanceEnabled = pp.balanceEnabled;
-		if (typeof balanceEnabled !== "boolean") return null;
 		const whisperEnabled = pp.whisperEnabled;
 		if (whisperEnabled !== void 0 && typeof whisperEnabled !== "boolean") return null;
 		const workStatusEnabled = pp.workStatusEnabled;
@@ -442,7 +442,6 @@ function saveUserConfig(raw, existing) {
 			id,
 			name,
 			size,
-			balanceEnabled,
 			whisperEnabled,
 			workStatusEnabled,
 			fixedEnabled,
@@ -454,6 +453,7 @@ function saveUserConfig(raw, existing) {
 			}
 		});
 	}
+	if (!out.length) return null;
 	const ne = o.notificationsEnabled;
 	if (ne !== void 0 && typeof ne !== "boolean") return null;
 	const wie = o.whisperImageEnabled;
@@ -848,368 +848,6 @@ function envPositiveInt(value, fallback) {
 }
 
 //#endregion
-//#region src/standalone/shims/dsh-credentials.ts
-function credentialRef(ref) {
-	return ref;
-}
-
-//#endregion
-//#region src/host/balance/internal.ts
-/**
-* 余额查询的**内部工具**（host 侧）：网络策略 + 响应校验 + 金额处理。
-*
-* 只给 ./providers/* 用。所有服务商共用同一套口径：
-* - 网络：20s 超时 + 3 次重试（实测该环境对境外端点间歇性超时）；
-* - 校验：必填字段缺失/非法一律 `throw`，**绝不静默当 0**（失败要显式暴露成 fetch-error）；
-* - 可选字段：缺失就是缺失（`undefined`），不补默认值。
-*/
-/** 抓取超时（ms） */
-const FETCH_TIMEOUT_MS = 2e4;
-/** 单次抓取失败后的重试次数（失败间隔 0.8s 线性退避） */
-const RETRIES = 3;
-/** fetch 一次，带超时；失败抛错（调用方决定是否重试） */
-async function fetchOnce(url, key) {
-	return fetch(url, {
-		headers: {
-			Authorization: "Bearer " + key,
-			"User-Agent": "dsh-pet-balance"
-		},
-		signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-	});
-}
-async function fetchWithRetry(url, key) {
-	let last;
-	for (let i = 0; i <= RETRIES; i++) try {
-		return await fetchOnce(url, key);
-	} catch (e) {
-		last = e;
-		if (i < RETRIES) await new Promise((r) => setTimeout(r, 800));
-	}
-	throw last instanceof Error ? last : new Error(String(last));
-}
-function num(value, what) {
-	const n = Number(value);
-	if (!Number.isFinite(n)) throw new Error("dsh-pet: 余额数据非法字段 " + what);
-	return n;
-}
-function str(value, what) {
-	if (typeof value !== "string" || value.length === 0) throw new Error("dsh-pet: 余额数据非法字段 " + what);
-	return value;
-}
-function looseNum(value) {
-	if (value === void 0 || value === null || value === "") return void 0;
-	const n = Number(value);
-	return Number.isFinite(n) ? n : void 0;
-}
-function obj(value) {
-	return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-/**
-* 重置时间：字符串原样（ISO 8601）；数字时间戳按秒/毫秒自动识别转 ISO；0 / 负数 / 非法 → undefined。
-* 真实报文里空闲窗口是 `resetAt: 0`（占位值，不是 1970 年重置）→ 视为「无重置时间」。
-*/
-function resetTime(value) {
-	if (typeof value === "string") return value.length > 0 ? value : void 0;
-	const n = looseNum(value);
-	if (n === void 0 || n <= 0) return void 0;
-	const ms = n < 1e12 ? n * 1e3 : n;
-	const d = new Date(ms);
-	return Number.isNaN(d.getTime()) ? void 0 : d.toISOString();
-}
-function readWindow(value) {
-	const w = obj(value);
-	if (!w) return void 0;
-	const used = looseNum(w.used);
-	const cap = looseNum(w.cap);
-	if (used === void 0 || cap === void 0 || cap <= 0) return void 0;
-	return {
-		percent: Math.max(0, used / cap * 100),
-		capUsd: cap,
-		resetsAt: resetTime(w.resetAt)
-	};
-}
-function queryString(params) {
-	const pairs = Object.entries(params).filter(([, v]) => v !== void 0);
-	return pairs.length > 0 ? "?" + pairs.map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&") : "";
-}
-function money(value, what) {
-	const raw = str(value, what);
-	const n = Number(raw);
-	if (!Number.isFinite(n)) throw new Error("dsh-pet: 账号余额金额非法 " + what);
-	return n.toFixed(2);
-}
-function sumMoney(a, b) {
-	return ((Math.round(Number(a) * 100) + Math.round(Number(b) * 100)) / 100).toFixed(2);
-}
-
-//#endregion
-//#region src/host/balance/providers/commandcode.ts
-/** 控制面基址（`/alpha/*` 固定在根域名） */
-const API_BASE = "https://api.commandcode.ai";
-/** 滚动窗时长（展示名）：本服务商的 5h 窗口就是 `windowLimits.fiveHour` */
-const ROLLING_LABEL$1 = "5h";
-/** 抓一次 JSON（GET + Bearer），HTTP 非 2xx 抛错；`label` 是接口路径，只进错误信息（便于自查哪一个失败） */
-async function fetchJson(url, key, label) {
-	const res = await fetchWithRetry(url, key);
-	if (!res.ok) throw new Error("commandcode " + label + " HTTP " + res.status);
-	return await res.json();
-}
-function parseCommandCode(creditsBody, subscriptionBody, summaryBody, provider) {
-	const root = obj(creditsBody);
-	const credits = obj(root?.credits);
-	if (!credits) throw new Error("dsh-pet: commandcode 响应缺少 credits");
-	const creditFields = [
-		credits.monthlyCredits,
-		credits.purchasedCredits,
-		credits.freeCredits
-	];
-	if (creditFields.every((v) => looseNum(v) === void 0)) throw new Error("dsh-pet: commandcode credits 响应缺少额度字段");
-	const remaining = creditFields.reduce((sum, v) => sum + Math.max(0, looseNum(v) ?? 0), 0);
-	const summary = obj(summaryBody);
-	const spentRaw = summary?.totalCost;
-	if (spentRaw === void 0 || spentRaw === null) throw new Error("dsh-pet: commandcode usage 响应缺少 totalCost");
-	const spent = Math.max(0, num(spentRaw, "totalCost"));
-	const pool = spent + remaining;
-	const data = { monthly: pool > 0 ? spent / pool * 100 : 0 };
-	if (pool > 0) data.monthlyCapUsd = pool;
-	const subscription = obj(obj(subscriptionBody)?.data);
-	const periodEnd = subscription?.currentPeriodEnd;
-	if (typeof periodEnd === "string" && periodEnd.length > 0) data.monthlyResetsAt = periodEnd;
-	const limits = obj(root?.windowLimits) ?? obj(credits.windowLimits);
-	if (limits?.limited === true) {
-		const fiveHour = readWindow(limits.fiveHour);
-		if (fiveHour) {
-			data.rolling = fiveHour.percent;
-			data.rollingCapUsd = fiveHour.capUsd;
-			data.rollingLabel = ROLLING_LABEL$1;
-			if (fiveHour.resetsAt) data.rollingResetsAt = fiveHour.resetsAt;
-		}
-		const weekly = readWindow(limits.weekly);
-		if (weekly) {
-			data.weekly = weekly.percent;
-			data.weeklyCapUsd = weekly.capUsd;
-			if (weekly.resetsAt) data.weeklyResetsAt = weekly.resetsAt;
-		}
-	}
-	return {
-		ok: true,
-		provider,
-		shape: "windows",
-		data
-	};
-}
-const commandCode = {
-	ids: ["commandcode"],
-	credential: {
-		mode: "ref",
-		ref: "COMMANDCODE_API_KEY"
-	},
-	async fetch({ key, provider }) {
-		const whoami = obj(await fetchJson(API_BASE + "/alpha/whoami" + queryString({ limits: "1" }), key, "/alpha/whoami"));
-		const org = obj(whoami?.org);
-		const orgId = typeof org?.id === "string" && org.id.length > 0 ? org.id : void 0;
-		const credits = await fetchJson(API_BASE + "/alpha/billing/credits" + queryString({ orgId }), key, "/alpha/billing/credits");
-		let subscription;
-		try {
-			subscription = await fetchJson(API_BASE + "/alpha/billing/subscriptions" + queryString({ orgId }), key, "/alpha/billing/subscriptions");
-		} catch {
-			subscription = void 0;
-		}
-		const periodStart = obj(obj(subscription)?.data)?.currentPeriodStart;
-		const summary = await fetchJson(API_BASE + "/alpha/usage/summary" + queryString({
-			since: typeof periodStart === "string" ? periodStart : void 0,
-			orgId
-		}), key, "/alpha/usage/summary");
-		return parseCommandCode(credits, subscription, summary, provider);
-	}
-};
-
-//#endregion
-//#region src/host/balance/codex.ts
-function queryCodexBalance() {
-  // Account quotas are disabled; Codex chat, activity and window integration are independent.
-  return Promise.resolve({ ok: false, provider: "codex", reason: "disabled", message: "Codex 账号额度查询已关闭，不影响第三方 API 与其他 Codex 联动。" });
-}
-
-//#endregion
-//#region src/host/balance/deepseek-common.ts
-const DEEPSEEK_FULL_BALANCE = "20";
-function deepseekPricingTier(now = new Date()) {
-	const parts = new Intl.DateTimeFormat("en-US", {
-		timeZone: "Asia/Shanghai",
-		weekday: "short",
-		hour: "2-digit",
-		hourCycle: "h23"
-	}).formatToParts(now);
-	const pick = (type) => parts.find((p) => p.type === type)?.value;
-	const weekday = pick("weekday");
-	const hour = Number(pick("hour"));
-	if (weekday === "Sat" || weekday === "Sun") return "idle";
-	return hour >= 9 && hour < 12 || hour >= 14 && hour < 18 ? "peak" : "idle";
-}
-
-//#endregion
-//#region src/host/balance/providers/deepseek-account.ts
-function parseAccountBalance(snapshot, provider) {
-	if (!snapshot) throw new Error("dsh-pet: 账号未登录（deepseek-account）");
-	if (snapshot.status !== "ready") throw new Error("dsh-pet: 账号余额查询失败");
-	const wallets = Array.isArray(snapshot.value) ? snapshot.value : [];
-	if (wallets.length === 0) throw new Error("dsh-pet: 账号没有充值钱包余额");
-	const first = obj(wallets[0]);
-	if (!first) throw new Error("dsh-pet: 账号钱包结构非法");
-	const currency = typeof first.currency === "string" && first.currency.length > 0 ? first.currency : "CNY";
-	const toppedUp = money(first.balance, "balance");
-	const bonus = (Array.isArray(snapshot.bonusWallets) ? snapshot.bonusWallets : []).map((w) => obj(w)).find((w) => w !== void 0 && w.currency === currency);
-	const granted = bonus ? money(bonus.balance, "bonus balance") : "0.00";
-	return {
-		ok: true,
-		provider,
-		shape: "money",
-		data: {
-			currency,
-			total: sumMoney(granted, toppedUp),
-			granted,
-			toppedUp,
-			fullBalance: DEEPSEEK_FULL_BALANCE,
-			tier: deepseekPricingTier()
-		}
-	};
-}
-const deepseekAccount = {
-	ids: ["deepseek-account"],
-	credential: { mode: "none" },
-	async fetch({ provider, resolveAccount }) {
-		if (!resolveAccount) throw new Error("dsh-pet: 缺少账号服务（" + provider + "）");
-		return parseAccountBalance(await resolveAccount(), provider);
-	}
-};
-
-//#endregion
-//#region src/host/balance/providers/deepseek-official.ts
-const deepseekOfficial = {
-	ids: ["deepseek-official"],
-	credential: {
-		mode: "ref",
-		ref: "DEEPSEEK_API_KEY"
-	},
-	async fetch({ key, provider }) {
-		const res = await fetchWithRetry("https://api.deepseek.com/user/balance", key);
-		if (!res.ok) throw new Error("deepseek balance HTTP " + res.status);
-		const body = await res.json();
-		const infos = body?.balance_infos;
-		if (!Array.isArray(infos) || infos.length === 0) throw new Error("dsh-pet: deepseek balance 响应缺少 balance_infos");
-		const first = infos[0];
-		return {
-			ok: true,
-			provider,
-			shape: "money",
-			data: {
-				currency: str(first.currency, "currency"),
-				total: str(first.total_balance, "total_balance"),
-				granted: str(first.granted_balance, "granted_balance"),
-				toppedUp: str(first.topped_up_balance, "topped_up_balance"),
-				fullBalance: DEEPSEEK_FULL_BALANCE,
-				tier: deepseekPricingTier()
-			}
-		};
-	}
-};
-
-//#endregion
-//#region src/host/balance/providers/opencode-go.ts
-/** 各窗口满额度金额（USD）。业务常量：12 = 5h（5 小时滚动窗口）、30 = 周、60 = 月 */
-const QUOTA_USD = {
-	rolling: 12,
-	weekly: 30,
-	monthly: 60
-};
-/** 滚动窗时长（展示名）：本服务商是 5 小时 */
-const ROLLING_LABEL = "5h";
-const opencodeGo = {
-	ids: ["opencode-go"],
-	credential: {
-		mode: "ref",
-		ref: "OPENCODE_GO_API_KEY"
-	},
-	async fetch({ key, provider }) {
-		const res = await fetchWithRetry("https://opencode.ai/zen/go/v1/usage", key);
-		if (!res.ok) throw new Error("opencode usage HTTP " + res.status);
-		const body = await res.json();
-		const usage = body?.usage;
-		if (!usage || typeof usage !== "object") throw new Error("dsh-pet: opencode usage 响应缺少 usage");
-		const u = usage;
-		const rolling = u.rolling, weekly = u.weekly, monthly = u.monthly;
-		if (!rolling || !weekly || !monthly) throw new Error("dsh-pet: opencode usage 响应缺少窗口");
-		return {
-			ok: true,
-			provider,
-			shape: "windows",
-			data: {
-				rolling: num(rolling.percent, "rolling.percent"),
-				weekly: num(weekly.percent, "weekly.percent"),
-				monthly: num(monthly.percent, "monthly.percent"),
-				rollingCapUsd: QUOTA_USD.rolling,
-				weeklyCapUsd: QUOTA_USD.weekly,
-				monthlyCapUsd: QUOTA_USD.monthly,
-				rollingLabel: ROLLING_LABEL,
-				rollingResetsAt: str(rolling.resetsAt, "rolling.resetsAt"),
-				weeklyResetsAt: str(weekly.resetsAt, "weekly.resetsAt"),
-				monthlyResetsAt: str(monthly.resetsAt, "monthly.resetsAt")
-			}
-		};
-	}
-};
-
-//#endregion
-//#region src/host/balance/index.ts
-const BALANCE_PROVIDERS = [
-	opencodeGo,
-	commandCode,
-	deepseekOfficial,
-	deepseekAccount
-];
-function matchBalanceProvider(provider) {
-	return BALANCE_PROVIDERS.find((p) => p.ids.includes(provider));
-}
-/**
-* 失败结果（三种 reason 一个出口，避免各处手写字段）。
-* `message` 缺省时**不写这个键** —— 叶子的形状是对外契约，多一个 `undefined` 键会让
-* `deepStrictEqual` 一类的严格比对失败（消费端也按「有/无」判断）。
-*/
-function failed(provider, reason, message) {
-	return message === void 0 ? {
-		ok: false,
-		provider,
-		reason
-	} : {
-		ok: false,
-		provider,
-		reason,
-		message
-	};
-}
-async function queryBalance(provider, resolveKey, resolveAccount) {
-	if (provider === "codex") return queryCodexBalance();
-	const def = matchBalanceProvider(provider);
-	if (!def) return failed(provider, "unsupported");
-	let key = "";
-	if (def.credential.mode === "ref") {
-		const resolved = await resolveKey(def.credential.ref);
-		if (!resolved) return failed(provider, "credential-missing", "缺少凭证 " + def.credential.ref);
-		key = resolved;
-	} else if (!resolveAccount) return failed(provider, "credential-missing", "缺少账号服务（" + provider + "）");
-	try {
-		return await def.fetch({
-			provider,
-			key,
-			resolveAccount
-		});
-	} catch (e) {
-		return failed(provider, "fetch-error", e instanceof Error ? e.message : String(e));
-	}
-}
-
-//#endregion
 //#region src/standalone/shims/dsh-llm.ts
 function createUserMessage(input) {
 	return {
@@ -1412,7 +1050,7 @@ const DEFAULT_QUOTES = [
 	"本鱼帮你看着桌面，白饭记账，token 算奖金。",
 	"别急别急，灵感正在游过来。",
 	"累了就歇会儿，本鱼又不会游走。",
-	"这点额度要省着吃，不能一口闷！",
+	"工作也要留点力气，别一口气全用完！",
 	"存好文件哦，别让成果溜进海里。",
 	"本鱼今天也有认真陪你，才没偷懒！",
 	"伸个懒腰吧，鱼都知道换个姿势。",
@@ -1678,8 +1316,8 @@ function decideAnim(args) {
 		reason: "unknown-pet",
 		message: "没有这只桌宠：" + petId
 	};
-	const conf = (findPetInstance(cfg, petId) ?? { conf: cfg.main ?? {} }).conf;
-	const allowed = animationNames(conf.animations);
+	const found = findPetInstance(cfg, petId);
+	const allowed = animationNames(found?.pet.animations ?? found?.conf.animations ?? cfg.main?.animations);
 	if (!allowed.includes(name)) return {
 		ok: false,
 		reason: "unknown-animation",
@@ -1989,7 +1627,6 @@ var PollStateStore = class {
 	constructor() {
 		this.last = 0;
 		this.sections = {
-			balance: emptyLeaf(),
 			workStatus: emptyLeaf(),
 			notify: emptyLeaf()
 		};
@@ -2001,7 +1638,7 @@ var PollStateStore = class {
 		return this.last;
 	}
 	/**
-	* 写一个全局叶子（余额 / 工作状态 / 通知）。
+	* 写一个全局叶子（工作状态 / 通知）。
 	* 每次都整体替换叶子对象（不原地改字段），保证 `read()` 拿到的引用不会半新半旧。
 	*/
 	writeSection(name, data) {
@@ -2603,7 +2240,6 @@ function apply(ctx) {
 		return [memesUserRoot, PACKAGE_MEMES_DIR];
 	};
 	const state = new PollStateStore();
-	let controlRequest = 0;
 	let reminders;
 	const remindersReady = () => {
 		if (!reminders) reminders = import(new URL("../runtime/reminders.mjs", import.meta.url).href).then((runtime) => runtime.reminderService(dshHomeDir())).catch((error) => {
@@ -2616,6 +2252,7 @@ function apply(ctx) {
 	let codexBusy = false;
 	/** 心情系统（本地规则，不调用模型）：时间/饱腹/互动/Codex 状态/DDL → 心情标签，驱动动画权重、点击反应与碎碎念选句 */
 	let mood = null;
+	let moodPetId = "main"; // Synchronous interaction replies target the clicked/fed instance; scheduled moments use main.
 	ctx.effect(() => {
 		let disposed$1 = false;
 		let service;
@@ -2623,8 +2260,8 @@ function apply(ctx) {
 			if (disposed$1) return;
 			service = module.moodService(dshHomeDir(), {
 				publish: (view) => state.writeSection("mood", view),
-				say: (said) => state.writePet("main", "say", said),
-				play: (name) => state.writePet("main", "anim", { name }),
+				say: (said) => state.writePet(moodPetId, "say", said),
+				play: (name) => state.writePet(moodPetId, "anim", { name }),
 				reminders: async () => (await remindersReady()).snapshot()
 			});
 			service.start();
@@ -2636,44 +2273,7 @@ function apply(ctx) {
 			mood = null;
 		};
 	}, "codex-pet: mood");
-	/** 她的 B 站生活（第一期只读，不对外发言）：总开关关着时完全不碰 B 站；见 B站生活设计稿.md */
-	let bili = null;
-	ctx.effect(() => {
-		let disposed$1 = false;
-		let service;
-		Promise.all([
-			import(new URL("../runtime/bili/life.mjs", import.meta.url).href),
-			import(new URL("../runtime/bili/api.mjs", import.meta.url).href),
-			import(new URL("../runtime/bili/frames.mjs", import.meta.url).href),
-			import(new URL("../runtime/model-router.mjs", import.meta.url).href),
-			import(new URL("../runtime/persona.mjs", import.meta.url).href)
-		]).then(([life, api, frames, llm, persona]) => {
-			if (disposed$1) return;
-			const home = dshHomeDir();
-			const client = api.createClient({ dir: join(home, "bili", "cache") });
-			service = life.lifeService({
-				dataDir: home,
-				client,
-				llm: llm.createModelRouter(home),
-				grab: (video, timeoutMs) => frames.grabGrid({ client, video, dir: join(home, "bili", "frames"), timeoutMs }),
-				mood: () => mood,
-				say: (said) => state.writePet("main", "say", said),
-				persona: () => {
-					const settings = persona.readPersona(home);
-					return { identity: persona.identityOf(settings), actions: settings.actions };
-				},
-				takeAction: (text) => persona.takeAction(text, Math.random, persona.readPersona(home).character)
-			});
-			service.start();
-			bili = service;
-		}).catch((error) => console.warn("[codex-pet] B 站生活未能启动：" + (error instanceof Error ? error.message : String(error))));
-		return () => {
-			disposed$1 = true;
-			service?.stop();
-			bili = null;
-		};
-	}, "codex-pet: bili life");
-	let localActivity = null;
+  let localActivity = null;
 	let pendingHostActivity = { state: null, task: null };
 	ctx.effect(() => {
 		let disposed = false;
@@ -2683,7 +2283,7 @@ function apply(ctx) {
 				codexBusy = snapshot.state !== null && snapshot.state !== 'success' && snapshot.state !== 'error';
 				state.writeSection('workStatus', snapshot);
 				mood?.activity(snapshot);
-			}, { home: dshHomeDir(), onDiagnostics: (data) => state.writeSection('integrations', data) });
+			}, { home: dshHomeDir(), onDiagnostics: (data) => state.writeSection('integrations', data), onCodexProgress: (data) => state.writeSection('codexProgress', data) });
 			localActivity.updateHost(pendingHostActivity);
 		}).catch((error) => console.warn('[codex-pet] 双联动监听未能启动：' + error.message));
 		return () => { disposed = true; localActivity?.stop(); localActivity = null; };
@@ -2889,88 +2489,12 @@ function apply(ctx) {
 	* 字段填满），命令与桌面模式都从这里取。
 	*/
 	const effectivePetList = () => flattenPetList(readAllConfig(configPaths));
-	/** 余额刷新周期（秒）：成品 main 条目的 eventsRefreshSec.balance（合并器已填默认；非法兜底 1800） */
-	const balancePeriodSec = (cfg) => {
-		const ers = cfg.main?.eventsRefreshSec;
-		const n = Number(ers?.balance);
-		return Number.isFinite(n) && n > 0 ? n : 1800;
-	};
 	/** 碎碎念周期（秒）：该宠物**所属条目**的 eventsRefreshSec.whisper（合并器已填默认；非法兜底 300） */
 	const whisperPeriodSec = (cfg, petId) => {
 		const conf = (findPetInstance(cfg, petId) ?? { conf: cfg.main ?? {} }).conf;
 		const ers = conf.eventsRefreshSec;
 		const n = Number(ers?.whisper);
 		return Number.isFinite(n) && n > 0 ? n : 300;
-	};
-	/**
-	* 刷新余额并写入 S —— host 侧**唯一**的余额查询点。
-	*
-	* 改造前是每个客户端各自按自己的定时器去查（浏览器一个 + 桌面每窗口一个）：同一份外部 API
-	* 被重复请求、两端还可能看到新旧不一致的数据。现在只有这里查，两端都从 /state 读同一份结果。
-	*
-	* 失败也写进 S（reason 区分 unsupported / credential-missing / fetch-error）——余额不可用要弹
-	* 文字说明气泡，不能静默；意外异常同样落成 fetch-error，不吞。
-	*
-	* @param manual 这次刷新是不是"用户要的"（/balance 命令、桌面「查看余额」菜单）。
-	*   标记随数据一起写进叶子：只有 host 知道是谁要的，前端据此决定余额不可用时要不要**必弹**
-	*   文字说明（decideBalanceNotice 的 explicit；周期刷新则只在原因变化时弹一次，免得反复刷屏）。
-	*/
-	/**
-	* 账号服务要求的调用方身份（`AccountClientMetadata`）：Platform 用它派生五个客户端头，
-	* 只影响**请求来源标识**与**服务端本地化文案**，不参与余额数值与币种。
-	*
-	* - version：本插件版本（读自身 package.json；读不到回落 '0.0.0'——该字段只是标识）
-	* - locale：本插件是中文产品，固定 `zh-CN`（Platform 侧归一到 zh_CN）
-	* - timezoneOffsetSeconds：本机 UTC 偏移（东八区为 +28800）
-	*/
-	const accountClientMetadata = () => {
-		let version = "0.0.0";
-		try {
-			const raw = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8"));
-			if (typeof raw.version === "string" && raw.version.length > 0) version = raw.version;
-		} catch {}
-		return {
-			version,
-			locale: "zh-CN",
-			timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60
-		};
-	};
-	const refreshBalance = async (manual = false) => {
-		const mark = (v) => manual ? {
-			...v,
-			manual: true
-		} : v;
-		try {
-			const sel = ctx.agentDefaultModel.currentSelection();
-			// Codex account quotas are disabled, including explicit legacy requests.
-			if (sel.provider === "codex") {
-				state.writeSection("balance", mark(await queryCodexBalance()));
-				return;
-			}
-			const result = await queryBalance(
-				sel.provider,
-				async (ref) => {
-					const rc = await ctx.credentials.resolve(credentialRef(ref));
-					return rc?.value;
-				},
-				// `deepseek-account`（免费额度 / 平台登录）没有 API Key：它的凭证是 DSH 账号服务
-				// 持有的授权记录，只能经 getBalance 查询。账号服务是**可选**服务（软取，不放进
-				// inject）——没装账号插件时它不在场，此时该路由报 credential-missing 而不是崩。
-				async () => {
-					const account = ctx.get("deepseekAccount", false);
-					if (!account) return void 0;
-					return account.getBalance(accountClientMetadata());
-				}
-);
-			state.writeSection("balance", mark(result));
-		} catch (e) {
-			state.writeSection("balance", mark({
-				ok: false,
-				provider: "unknown",
-				reason: "fetch-error",
-				message: e instanceof Error ? e.message : String(e)
-			}));
-		}
 	};
 	/** 当前交互桌宠 id：/pet 已选且仍存在 → 该宠物；未选/已失效 → 有效宠物列表第一只（进程内，重启回默认） */
 	const resolveActivePetId = () => {
@@ -3147,10 +2671,27 @@ function apply(ctx) {
 	/** 单次业务路由(WebServer 注册 → HTTP 落盘 / 桌面 Helper 管道 → scheme 应答,共用同一份实现):
 	*  输入只需 rawUrl(/dsh-pet-7340/... + 查询) + method + body 文本;返回 RouteResult(JSON/文本/文件),
 	*  消费方各自落盘——业务逻辑只有一份,两端天然一致(硬契约:浏览器/桌面行为严格对齐)。 */
-	const handlePetRoute = async (rawUrl, method, body) => {
+	const positionTracker = createPositionTracker();
+  const positionState = () => ({ ...positionSettingsState(dshHomeDir()),
+    current: positionTracker.snapshot(effectivePetList().filter(p => p.display === 'desktop' || p.display === 'both').map(p => p.characterSlot)),
+    companionEnabled: !!characterState(dshHomeDir()).companionActive,
+    globalLocked: dragSettingsState(dshHomeDir()).settings.lockPosition,
+  });
+  const handlePetRoute = async (rawUrl, method, body) => {
 		const url = new URL(rawUrl, "http://localhost");
 		const rest = decodeURIComponent(url.pathname.slice(ROUTE_PREFIX.length + 1));
-		if (rest === "drag-settings") {
+		if (rest === "position-settings" || rest === "position-settings/current") {
+      if (method !== "GET" && method !== "POST" || rest.endsWith('/current') && method !== 'POST') return { kind: 'json', status: 405, obj: { ok: false, message: 'method not allowed' } };
+      try {
+        if (method === 'POST') {
+          const input = JSON.parse(body ?? '');
+          if (rest.endsWith('/current')) { positionTracker.update(input); return { kind: 'json', status: 200, obj: { ok: true } }; }
+          savePositionSettings(dshHomeDir(), input);
+        }
+        return { kind: 'json', status: 200, obj: positionState() };
+      } catch (error) { return { kind: 'json', status: 400, obj: { ok: false, message: error.message } }; }
+    }
+    if (rest === "drag-settings") {
 			if (method !== "GET" && method !== "POST") return { kind: "json", status: 405, obj: { ok: false, message: "method not allowed" } };
 			try {
 				const obj = method === "GET" ? dragSettingsState(dshHomeDir()) : saveDragSettings(dshHomeDir(), JSON.parse(body ?? ""));
@@ -3189,7 +2730,9 @@ function apply(ctx) {
 				status: 405,
 				obj: { ok: false }
 			};
-			await writeFile(join(dshHomeDir(), "manager-request.json"), JSON.stringify({
+			const input = typeof body === "string" ? JSON.parse(body || "{}") : body;
+      if (input?.view && input.view !== "reminders") return { kind: "json", status: 400, obj: { ok: false } };
+      await writeFile(join(dshHomeDir(), "manager-request.json"), JSON.stringify({
 				id: Date.now(),
 				view: "reminders"
 			}), "utf8");
@@ -3199,33 +2742,7 @@ function apply(ctx) {
 				obj: { ok: true }
 			};
 		}
-		if (rest === "reminders" || rest === "control") try {
-			if (rest === "control") {
-				if (method !== "POST") return {
-					kind: "json",
-					status: 405,
-					obj: { error: "method not allowed" }
-				};
-				const payload = JSON.parse(body || "{}");
-				if (payload.action === "consume") {
-					const accepted = controlRequest > 0 && payload.id === controlRequest;
-					if (accepted) controlRequest = 0;
-					return {
-						kind: "json",
-						status: 200,
-						obj: {
-							ok: true,
-							accepted
-						}
-					};
-				}
-				controlRequest = Date.now();
-				return {
-					kind: "json",
-					status: 200,
-					obj: { ok: true }
-				};
-			}
+		if (rest === "reminders") try {
 			remindersReady();
 			if (method !== "GET" && method !== "POST") return {
 				kind: "json",
@@ -3250,10 +2767,7 @@ function apply(ctx) {
 			return {
 				kind: "json",
 				status: 200,
-				obj: {
-					...result,
-					controlRequest
-				},
+				obj: result,
 				headers: { "cache-control": "no-store" }
 			};
 		} catch (e) {
@@ -3288,7 +2802,7 @@ function apply(ctx) {
 				if (!clean) return {
 					kind: "json",
 					status: 400,
-					obj: { error: "invalid pet config: expected { pets:[{name?,id,size,balanceEnabled,display,position:{corner,marginX,marginY}}] }（display 为 web/desktop/both/none 之一；可选顶层 notificationsEnabled / whisperImageEnabled / chatImageEnabled 布尔；可选宠物布尔 whisperEnabled / workStatusEnabled / fixedEnabled）" }
+					obj: { error: "invalid pet config: expected { pets:[{name?,id,size,display,position:{corner,marginX,marginY}}] }（display 为 web/desktop/both/none 之一；可选顶层 notificationsEnabled / whisperImageEnabled / chatImageEnabled 布尔；可选宠物布尔 whisperEnabled / workStatusEnabled / fixedEnabled）" }
 				};
 				if (url.searchParams.get("force") !== "1" && userConfigUnparsable(configPaths)) return {
 					kind: "json",
@@ -3400,7 +2914,8 @@ function apply(ctx) {
 				existing = file$1.raw;
 			}
 			const layerPets = Array.isArray(hit.conf.pets) ? hit.conf.pets : [];
-			const pets = layerPets.map((p) => String(p.id) === petId$1 ? {
+			const displayPetId = hit.pet.companion ? String(layerPets.find(p => !p.companion)?.id ?? "") : petId$1;
+			const pets = layerPets.map((p) => String(p.id) === displayPetId ? {
 				...p,
 				display: nextDisplay
 			} : p);
@@ -3515,19 +3030,6 @@ function apply(ctx) {
 				headers: { "cache-control": "no-cache, no-store" }
 			};
 		}
-		if (rest === "balance") {
-			if (method !== "POST") return {
-				kind: "json",
-				status: 405,
-				obj: { error: "method not allowed" }
-			};
-			await refreshBalance(true);
-			return {
-				kind: "json",
-				status: 200,
-				obj: { ok: true }
-			};
-		}
 		if (rest === "ack" && method === "POST") {
 			state.writePet("main", "say", {
 				text: "收到！本鱼这就去叫 Codex～",
@@ -3585,12 +3087,12 @@ function apply(ctx) {
 				action: "send",
 				text: parsed.text
 			} : parsed, {
-				state: mood?.view(),
-				bili
+				state: mood?.view()
 			});
-			if (result.ok && result.text) state.writePet("main", "say", result.animation ? {
+			const sayAnimation = result.broadcastAnimation || result.animation;
+			if (result.ok && result.text) state.writePet("main", "say", sayAnimation ? {
 				text: result.text,
-				animation: result.animation
+				animation: sayAnimation
 			} : { text: result.text });
 			if (result.ok && (rest === "chat" || parsed.action === "send")) {
 				mood?.event("chat");
@@ -3609,45 +3111,6 @@ function apply(ctx) {
 					ok: false,
 					message: e instanceof Error ? e.message : String(e)
 				}
-			};
-		}
-		if (rest === "bili") {
-			if (!bili) return {
-				kind: "json",
-				status: 200,
-				obj: {
-					ok: false,
-					message: "B 站生活还在启动，请稍后再试"
-				}
-			};
-			if (method === "GET") return {
-				kind: "json",
-				status: 200,
-				obj: bili.view(),
-				headers: { "cache-control": "no-store" }
-			};
-			if (method !== "POST") return {
-				kind: "json",
-				status: 405,
-				obj: { ok: false }
-			};
-			let payload;
-			try {
-				payload = JSON.parse(body || "{}");
-			} catch {
-				return {
-					kind: "json",
-					status: 400,
-					obj: {
-						ok: false,
-						message: "请求格式不对，请重试"
-					}
-				};
-			}
-			return {
-				kind: "json",
-				status: 200,
-				obj: bili.command(payload)
 			};
 		}
 		if (rest === "mood") {
@@ -3683,11 +3146,11 @@ function apply(ctx) {
 					}
 				};
 			}
-			return {
-				kind: "json",
-				status: 200,
-				obj: payload?.type === "event" ? mood.event(String(payload.event ?? "")) : mood.command(payload)
-			};
+			if (payload?.pet !== undefined && (typeof payload.pet !== "string" || !effectivePetList().some(p => p.id === payload.pet))) return { kind: "json", status: 400, obj: { ok: false, message: "没有这只桌宠" } };
+			moodPetId = payload?.pet || "main";
+			try {
+				return { kind: "json", status: 200, obj: payload?.type === "event" ? mood.event(String(payload.event ?? "")) : mood.command(payload) };
+			} finally { moodPetId = "main"; }
 		}
 		if (rest === "whisper") {
 			if (method !== "POST") return {
@@ -3983,7 +3446,7 @@ function apply(ctx) {
 			body: "dsh-pet: unsupported animation format (expected .webm or .mov)"
 		};
 		if (petId === CHARACTER_ASSET_ROOT) {
-			const media = resolveCharacterAsset(dshHomeDir(), fileName);
+			const media = resolveCharacterAsset(dshHomeDir(), fileName, petId);
 			return media ? { kind: "file", file: media, contentType: "video/webm" } : { kind: "text", status: 404, body: "character asset not found" };
 		}
 		const extraAnimDir = resolveAsset(petConfigDir, petId + "-animation");
@@ -4107,41 +3570,6 @@ function apply(ctx) {
 			errorDispose();
 		};
 	}, "dsh-pet: notify frames");
-	ctx.effect(() => ctx.commands.register({
-		name: "balance",
-		description: "手动触发桌宠余额显示（立即弹出余额气泡）",
-		handler: () => {
-			refreshBalance(true);
-			return {
-				kind: "success",
-				text: "已触发桌宠余额显示"
-			};
-		}
-	}), "dsh-pet: /balance command");
-	ctx.effect(() => {
-		let disposed$1 = false;
-		let timer = null;
-		function arm(sec) {
-			if (disposed$1) return;
-			timer = setTimeout(() => void tick(), Math.max(1e3, sec * 1e3));
-		}
-		async function tick() {
-			let sec;
-			try {
-				const cfg = readAllConfig(configPaths);
-				sec = balancePeriodSec(cfg);
-				if (flattenPetList(cfg).some((p) => p.balanceEnabled === true)) await refreshBalance();
-			} catch {
-				return;
-			}
-			arm(sec);
-		}
-		tick();
-		return () => {
-			disposed$1 = true;
-			if (timer !== null) clearTimeout(timer);
-		};
-	}, "dsh-pet: balance poll");
 	ctx.effect(() => {
 		let disposed$1 = false;
 		let timer = null;
@@ -4412,7 +3840,7 @@ const USAGE = `dsh-pet 独立模式（不需要 DSH）
 
 说明：
   桌宠在独立模式下以「透明置顶小窗」运行；浏览器内浮层需要有 DSH 网页，独立模式不提供。
-  余额 / 碎碎念 / 对话 / 系统通知依赖 DSH 的服务，在独立模式下不可用。
+  独立模式提供本地碎碎念、对话和工作状态联动，不需要 DSH 服务。
 `;
 function parseArgs(argv) {
 	const options = {
@@ -4668,7 +4096,6 @@ async function run(logger, options) {
 		`  配置        ${configSource}`,
 		`  宠物        ${describePets(pets)}`,
 		desktopVisible.length === 0 ? "  桌面小窗    0 只：display 需要 desktop 或 both 才会出现透明小窗（服务仍在运行）" : `  桌面小窗    ${desktopVisible.length} 只`,
-		"  额度        Codex 账号额度查询已关闭",
 		"  陪伴        本地语录碎碎念 + Codex／Harness 双状态联动",
 		"  对话        Codex 账号模型，或管理窗口里启用的第三方 API（仅主动发送时调用）",
 		"  退出        Ctrl+C，或 POST /shutdown",

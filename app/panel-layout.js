@@ -3,13 +3,12 @@
 (() => {
   const $ = id => document.getElementById(id);
   const pages = {
-    pet: { title: '桌宠', icon: 'paw', tabs: [['display', '形象与显示', '桌宠 大小 显示 隐藏 白龙 大肥鱼'], ['visibility', '隐藏设置', '隐藏 全屏 游戏 视频 窗口 置顶 光标 鼠标 穿透 边缘 探头 吸边 左右'], ['motion', '动作与移动', '动作 奔跑 飞行 大幅'], ['drag', '拖拽设置', '拖动 拖拽 物理 下落 甩出 力度 锁定 Shift 碰撞 弹力 摩擦 体重 撞击'], ['assets', '素材管理', '素材 导入 白龙 文件夹']] },
+    pet: { title: '桌宠', icon: 'paw', tabs: [['display', '形象与显示', '桌宠 大小 显示 隐藏 白龙 大肥鱼 第二只 双宠 组合'], ['position', '初始位置', '初始 位置 固定 坐标 启动 保存 X Y 第二只'], ['visibility', '隐藏设置', '隐藏 全屏 游戏 视频 窗口 置顶 光标 鼠标 穿透 边缘 探头 吸边 左右'], ['motion', '动作与移动', '动作 奔跑 飞行 大幅'], ['drag', '拖拽设置', '拖动 拖拽 物理 下落 甩出 力度 锁定 Shift 碰撞 弹力 摩擦 体重 撞击']] },
     mood: { title: '心情与养成', icon: 'heart', tabs: [['status', '她的心情', '心情 精力 饱腹 亲密 喂白饭'], ['quiet', '陪伴与安静时段', '安静 时间 陪伴 作息']] },
     chat: { title: '聊天与人设', icon: 'chat', tabs: [['conversation', '和她聊天', '聊天 会话 记录 Codex'], ['persona', '她的人设', '人设 名字 性格 称呼 动作 状态'], ['memory', '我的画像', '画像 记忆 补充 纠正 隐私']] },
     reminders: { title: '提醒事项', icon: 'calendar', tabs: [['list', 'DDL 小便签', '提醒 DDL 任务 完成 延后'], ['new', '新建提醒', '新建 截止 日期 重复 每周 提前量']] },
     work: { title: '工作联动', icon: 'workflow', tabs: [['connections', '状态感知', '工作 Codex Harness 状态 开关'], ['bridge', 'Harness 桥接', 'Harness 桥接 安装 EXE Profile 启动 协议']] },
-    model: { title: '模型与 API', icon: 'sparkles', tabs: [['source', '模型配置', '模型 API Key 服务商 地址 第三方 代理 思考'], ['advanced', '高级与识图', '识图 温度 超时 token 历史 画面']] },
-    bili: { title: '她的 B 站', icon: 'tv', tabs: [['life', 'B 站生活', 'B站 生活 日记 分享 叫醒'], ['preferences', '作息与口味', '作息 口味 喜欢 画面 分享 时段 概率'], ['account', '账号与隐私', '账号 登录 二维码 mid 昵称 隐私']] },
+    model: { title: '模型与 API', icon: 'sparkles', tabs: [['source', '模型配置', '模型 API Key 服务商 地址 第三方 代理 思考'], ['advanced', '高级设置', '温度 超时 token 历史']] },
     general: { title: '通用与数据', icon: 'settings', tabs: [['general', '软件与数据', '数据 文件夹 高级配置 位置 配置文件'], ['quotes', '自定义语录', '语录 编辑 碎碎念'], ['about', '关于项目', '关于 版本 托盘 退出']] },
   };
   const paths = {
@@ -20,7 +19,6 @@
     calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4M17 3v4M3 10h18m-13 5 3 3 5-5"/>',
     workflow: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><rect x="3" y="15" width="6" height="6" rx="1.5"/><path d="M6 9v6m3-9h7a2 2 0 0 1 2 2v7"/>',
     sparkles: '<path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3L12 3Zm7-1v4m-2-2h4"/>',
-    tv: '<rect x="3" y="7" width="18" height="13" rx="3"/><path d="m8 3 4 4 4-4M8 12v3m8-3v3m-7 8h6"/>',
     settings: '<path d="m9 3-.8 2.8-2.5 1-2.5-.7-2 3.5L3 11v2l-1.8 1.4 2 3.5 2.5-.7 2.5 1L9 21h6l.8-2.8 2.5-1 2.5.7 2-3.5L21 13v-2l1.8-1.4-2-3.5-2.5.7-2.5-1L15 3Z"/><circle cx="12" cy="12" r="3"/>',
   };
   const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`;
@@ -56,15 +54,15 @@
   const character = document.querySelector('.character-card');
   const options = character.querySelector('.character-options');
   const behavior = character.querySelector('.skin-behavior');
-  const materials = [$('character-bundled'), $('character-folder'), $('character-import'), $('character-path')];
-  pane(character, 'display', [options, $('pet-size-form'), document.querySelector('main > .actions')]);
+  pane(character, 'display', [options, $('character-companion').closest('label'), $('pet-size-form'), document.querySelector('main > .actions')]);
+  pane(character, 'position', [$('position-settings-form')]);
   pane(character, 'visibility', [$('display-settings-form')]);
   pane(character, 'motion', [behavior], '动作开关');
   pane(character, 'drag', [$('drag-settings-form')]);
-  pane(character, 'assets', materials, '白龙素材管理');
   roots.pet.classList.add('pet-layout');
   roots.pet.append(character);
   character.append($('character-status'));
+  const names = { dafeiyu: '大肥鱼', bailong: '白龙' };
   const media = {
     dafeiyu: 'backend/assets/webm/' + encodeURIComponent('待机呼吸休闲.webm'),
     bailong: 'backend/assets/characters/bailong/outputs/' + encodeURIComponent('白龙桌宠素材') + '/' + encodeURIComponent('透明WebM') + '/idle.webm',
@@ -74,9 +72,9 @@
     node.loop = true; node.playsInline = true; node.preload = 'metadata';
     node.setAttribute('aria-label', label); return node;
   }
-  for (const id of ['dafeiyu', 'bailong']) {
+  for (const id of Object.keys(names)) {
     const art = document.createElement('span'); art.className = 'character-art';
-    art.append(video(media[id], id === 'bailong' ? '白龙待机动画' : '大肥鱼待机动画'));
+    art.append(video(media[id], names[id] + '待机动画'));
     $('character-' + id).prepend(art);
   }
   const preview = document.createElement('aside'); preview.className = 'pet-preview'; preview.dataset.panelView = 'display';
@@ -125,18 +123,6 @@
   llmFields.append(...Array.from(llmForm.children)); llmForm.append(llmFields);
   llmForm.hidden = false;
   $('llm-toggle').setAttribute('aria-expanded', 'true');
-  const bili = $('bili-card'); roots.bili.append(bili);
-  const biliForm = $('bili-form');
-  const biliLifeNodes = Array.from(bili.children).filter(node => node !== biliForm && !node.matches('.section-title'));
-  pane(bili, 'life', biliLifeNodes);
-  const biliNodes = Array.from(biliForm.children), scheduleStart = biliNodes.findIndex(node => node.tagName === 'H3' && node.textContent === '作息');
-  const biliActions = biliForm.querySelector('.actions'), biliStatus = $('bili-status');
-  pane(biliForm, 'account', biliNodes.slice(0, scheduleStart));
-  pane(biliForm, 'preferences', biliNodes.slice(scheduleStart).filter(node => node !== biliActions && node !== biliStatus));
-  biliForm.append(biliActions, biliStatus); biliForm.hidden = false; biliForm.dataset.panelViews = 'preferences account';
-  const biliFields = document.createElement('fieldset'); biliFields.className = 'panel-form-fields'; biliFields.disabled = true;
-  biliFields.append(...Array.from(biliForm.children)); biliForm.append(biliFields);
-  $('bili-toggle').setAttribute('aria-expanded', 'true');
   const general = document.querySelector('.settings'); roots.general.append(general);
   pane(general, 'general', Array.from(general.querySelectorAll('[data-action="settings"], [data-action="folder"]')), '本地配置与数据');
   pane(general, 'quotes', [general.querySelector('[data-action="quotes"]')], '她的碎碎念');
@@ -146,15 +132,14 @@
   const rememberedTabs = new Map(), scrollPositions = new Map();
   const saveTargets = {
     'pet/display': ['pet-size-apply', '应用大小', 'pet-size-status'],
+    'pet/position': ['position-apply', '保存并应用位置', 'position-settings-status'],
     'pet/drag': ['drag-settings-apply', '应用拖拽设置', 'drag-settings-status'],
     'chat/persona': ['persona-save', '保存人设', 'persona-status'],
     'chat/memory': ['profile-save', '保存画像', 'profile-status'],
     'model/source': ['llm-save', '保存模型配置', 'llm-status'],
     'model/advanced': ['llm-save', '保存模型配置', 'llm-status'],
-    'bili/preferences': ['bili-save', '保存 B 站设置', 'bili-status'],
-    'bili/account': ['bili-save', '保存 B 站设置', 'bili-status'],
   };
-  const immediateStatus = { pet: 'character-status', mood: 'mood-message', reminders: 'reminder-message', work: 'integration-result', bili: 'bili-status' };
+  const immediateStatus = { pet: 'character-status', mood: 'mood-message', reminders: 'reminder-message', work: 'integration-result' };
   function target() {
     if (searching) return null;
     if (page === 'reminders' && tab === 'new') {
@@ -169,7 +154,6 @@
   function updateFooter() {
     // Expanded forms must remain unavailable until their original controllers have loaded real settings.
     if (llmFields.disabled !== $('llm-toggle').disabled) llmFields.disabled = $('llm-toggle').disabled;
-    if (biliFields.disabled !== $('bili-enabled').disabled) biliFields.disabled = $('bili-enabled').disabled;
     const current = target(), button = $('panel-save');
     button.hidden = !current;
     if (current) { text(button, current[1]); button.disabled = current[0].matches(':disabled'); }
@@ -177,9 +161,9 @@
     text($('panel-save-status'), searching ? '' : $(status)?.textContent || '');
   }
   function updatePreview() {
-    const id = $('character-bailong').getAttribute('aria-pressed') === 'true' ? 'bailong' : 'dafeiyu';
+    const id = Object.keys(names).find(id => $('character-' + id).getAttribute('aria-pressed') === 'true') || 'dafeiyu';
     if (previewVideo.dataset.character !== id) { previewVideo.src = media[id]; previewVideo.dataset.character = id; }
-    text($('panel-preview-name'), id === 'bailong' ? '白龙' : '大肥鱼');
+    text($('panel-preview-name'), names[id]);
     const size = Math.min(500, Math.max(100, Number($('pet-size-number').value) || 400));
     text($('panel-preview-size'), size + ' px');
     text(preview.querySelector('.preview-bubble'), $('activity').textContent);
@@ -225,7 +209,6 @@
     content.scrollTop = scrollPositions.get(page + '/' + tab) || 0;
     // These forms are now permanently expanded; their sub-panes provide progressive disclosure.
     if (page === 'model') llmForm.hidden = false;
-    if (page === 'bili') biliForm.hidden = false;
     updateFooter(); updatePreview();
     if (focus) $('panel-tab-' + tab).focus();
   }
@@ -275,9 +258,6 @@
       navigate(page, list[next][0], true);
     }
   });
-  $('bili-enabled').addEventListener('change', () => {
-    if ($('bili-enabled').checked && $('bili-logout').hidden) navigate('bili', 'account');
-  });
   content.addEventListener('input', scheduleUpdate);
   window.addEventListener('pet-character-changed', scheduleUpdate);
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', scheduleUpdate);
@@ -291,6 +271,9 @@
   observer.observe(content, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'aria-pressed'] });
   observer.observe(presence, { subtree: true, childList: true, characterData: true });
   window.addEventListener('beforeunload', () => { observer.disconnect(); reminderObserver.disconnect(); });
+  window.addEventListener('pet-manager-open', event => {
+    if (event.detail?.view === 'reminders') navigate('reminders', 'list');
+  });
   navigate('pet', 'display');
   document.body.classList.add('panel-layout-ready');
 })();

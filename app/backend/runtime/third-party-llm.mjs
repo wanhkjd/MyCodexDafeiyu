@@ -5,7 +5,6 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import https from 'node:https';
 import { buildPersona, withState } from './persona.mjs';
@@ -76,11 +75,8 @@ export function normalizeConfig(raw) {
     profiles.push(profile);
   }
   const active = profiles.some(p => p.id === source.active) ? source.active : profiles[0]?.id || '';
-  // 识图 (看画面): which saved profile looks at pictures ('' = the chat profile) and an optional model name override.
-  const vision = source.vision && typeof source.vision === 'object' ? source.vision : {};
   return {
     version: 2, enabled: source.enabled === true, active, profiles,
-    vision: { profile: profiles.some(p => p.id === vision.profile) ? vision.profile : '', model: text(vision.model, 160) },
   };
 }
 
@@ -93,12 +89,6 @@ export function readConfig(dataDir = homeDir()) {
 }
 
 const activeProfile = config => config.profiles.find(p => p.id === config.active) || null;
-
-/** The profile that looks at pictures, with the 识图 model name applied: the vision choice, else the chat profile. */
-function visionProfile(config) {
-  const base = config.profiles.find(p => p.id === config.vision.profile) || activeProfile(config);
-  return base ? { ...base, model: config.vision.model || base.model } : null;
-}
 
 /** The switch selects the provider; incomplete enabled settings must not silently fall back to Codex. */
 export function status(dataDir = homeDir()) {
@@ -348,17 +338,6 @@ async function probe(profile, apiKey) {
   return { ok: true, model: profile.model, seconds: Number(((Date.now() - started) / 1000).toFixed(1)), reply: reply.trim().slice(0, 80) };
 }
 
-const imageMessage = (prompt, image, mime) => ({ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${image}` } }] });
-
-/** 测试识图: show her own picture and ask for one sentence; a model that cannot see gives itself away here. */
-async function probeVision(profile, apiKey) {
-  const picture = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'logo.jpg')).toString('base64');
-  const started = Date.now();
-  const reply = await complete(profile, apiKey, [imageMessage('这是一张图片。请用一句中文描述你看到了什么，30 字以内。', picture, 'image/jpeg')], { maxTokens: 300 });
-  if (!reply.trim()) throw new Error('模型没有描述图片：它可能不支持看图，或者把输出都用来思考了');
-  return { ok: true, model: profile.model, seconds: Number(((Date.now() - started) / 1000).toFixed(1)), reply: reply.trim().slice(0, 120) };
-}
-
 async function listModels(profile, apiKey) {
   const timeout = AbortSignal.timeout(Math.min(profile.timeoutSec, 30) * 1000);
   try {
@@ -388,16 +367,14 @@ export async function command(dataDir, body) {
   const input = body && typeof body === 'object' ? body : {};
   try {
     if (input.action === 'save') return save(dataDir, input.config);
-    if (input.action === 'test' || input.action === 'models' || input.action === 'vision-test') {
+    if (input.action === 'test' || input.action === 'models') {
       const profile = normalizeProfile(input.profile);
       if (!profile.baseUrl) throw new Error('请先填写 API 地址');
-      if (input.action === 'vision-test') profile.model = text(input.model, 160) || profile.model;
       // A saved key only goes back to the address it was saved with; a changed address needs the key typed again.
       const saved = readConfig(dataDir).profiles.find(p => p.id === profile.id);
       const savedKey = saved?.baseUrl && apiRoot(saved.baseUrl) === apiRoot(profile.baseUrl) ? keys.get(profile.id) : '';
       const apiKey = text(input.apiKey, 500) || savedKey || '';
       assertKeyTransport(profile.baseUrl, apiKey);
-      if (input.action === 'vision-test') return await probeVision(profile, apiKey);
       return input.action === 'test' ? await probe(profile, apiKey) : await listModels(profile, apiKey);
     }
     return { ok: false, message: '未知操作' };
@@ -439,34 +416,4 @@ export async function chat(text, history = [], dataDir = homeDir(), options = {}
   } catch (error) {
     return { ok: false, reason: 'generate-error', message: error instanceof Error ? error.message : String(error) };
   }
-}
-
-/**
- * One-shot generation with the chat profile, for work outside chat (her Bilibili judgments and diaries).
- * Throws with a readable message; background work may take longer than a chat reply.
- */
-export async function generate({ system, prompt, maxTokens = 1500 }, dataDir = homeDir()) {
-  const config = readConfig(dataDir), profile = activeProfile(config);
-  if (!config.enabled || !profile?.baseUrl || !profile.model) throw new Error('第三方 API 未启用或配置不完整');
-  const apiKey = keys.get(profile.id) || '';
-  assertKeyTransport(profile.baseUrl, apiKey);
-  const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];
-  return (await complete({ ...profile, timeoutSec: Math.max(profile.timeoutSec, 150) }, apiKey, messages, { maxTokens })).trim();
-}
-
-/** Whether a 识图 profile is set up: {ok, name, model} or {ok:false, message}. */
-export function visionStatus(dataDir = homeDir()) {
-  const config = readConfig(dataDir), profile = visionProfile(config);
-  if (!profile?.baseUrl || !profile.model) return { ok: false, message: '还没有可用的识图配置' };
-  return { ok: true, name: profile.name, model: profile.model, sameAsChat: !config.vision.profile && !config.vision.model };
-}
-
-/** Look at one picture (base64) with the 识图 setting and answer prompt. Throws with a readable message. */
-export async function see({ image, mime = 'image/jpeg', prompt, system = '', maxTokens = 900 }, dataDir = homeDir()) {
-  const config = readConfig(dataDir), profile = visionProfile(config);
-  if (!profile?.baseUrl || !profile.model) throw new Error('还没有可用的识图配置');
-  const apiKey = keys.get(profile.id) || '';
-  assertKeyTransport(profile.baseUrl, apiKey);
-  const messages = [...(system ? [{ role: 'system', content: system }] : []), imageMessage(prompt, image, mime)];
-  return (await complete({ ...profile, timeoutSec: Math.max(profile.timeoutSec, 120) }, apiKey, messages, { maxTokens })).trim();
 }

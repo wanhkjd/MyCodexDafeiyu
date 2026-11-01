@@ -1,7 +1,7 @@
 'use strict';
 (() => {
 const card=document.createElement('section');
-card.id='llm-card';card.className='quota-card llm-card';
+card.id='llm-card';card.className='panel-card llm-card';
 card.innerHTML=`<div class="section-title"><h2>聊天用的大模型</h2><button id="llm-toggle" class="text-button" type="button" aria-expanded="false" disabled>设置</button></div>
 <label class="memory-toggle"><input type="checkbox" id="llm-enabled" disabled>用第三方 API（关闭时使用本机 Codex）</label>
 <p id="llm-summary" class="muted">正在读取模型设置…</p>
@@ -16,10 +16,6 @@ card.innerHTML=`<div class="section-title"><h2>聊天用的大模型</h2><button
 <label>网络代理<select id="llm-proxy-mode"><option value="system">跟随系统代理</option><option value="direct">不用代理（直连）</option><option value="custom">指定代理端口</option></select></label>
 <label id="llm-proxy-row">代理端口或地址<input id="llm-proxy" maxlength="200" spellcheck="false" placeholder="7890 或 127.0.0.1:7890"></label>
 <details><summary>高级设置</summary><div class="llm-grid"><label>温度（0–2）<input id="llm-temperature" type="number" min="0" max="2" step="0.1"></label><label>最大输出 token<input id="llm-max-tokens" type="number" min="32" max="32768" step="1"></label><label>超时（秒，10–110）<input id="llm-timeout" type="number" min="10" max="110" step="1"></label><label>携带历史轮数<input id="llm-history" type="number" min="0" max="20" step="1"></label></div></details>
-<details id="llm-vision-box"><summary>识图（看画面用）</summary><p class="muted">识图模型需支持图片。</p>
-<label>用哪套配置<select id="llm-vision-profile"></select></label>
-<label>识图模型名<input id="llm-vision-model" maxlength="160" spellcheck="false" placeholder="留空就用那套配置的模型，例如 glm-4.6v-flash"></label>
-<div class="llm-row"><button id="llm-vision-test" type="button">测试识图</button></div><p id="llm-vision-status" class="muted" role="status"></p></details>
 <div class="actions"><button id="llm-test" type="button">测试连接</button><button id="llm-save" type="button" class="primary">保存</button></div>
 <p id="llm-status" role="status"></p>
 <p class="muted">测试会调用服务商，可能产生费用。</p>
@@ -27,7 +23,7 @@ card.innerHTML=`<div class="section-title"><h2>聊天用的大模型</h2><button
 document.querySelector('.chat-card').before(card);
 const $=id=>document.getElementById(id);
 const fields={name:'llm-name',baseUrl:'llm-base',model:'llm-model',thinking:'llm-thinking',proxyMode:'llm-proxy-mode',proxy:'llm-proxy',temperature:'llm-temperature',maxTokens:'llm-max-tokens',timeoutSec:'llm-timeout',historyRounds:'llm-history'};
-const buttons=['llm-test','llm-save','llm-fetch','llm-enabled','llm-add','llm-remove','llm-vision-test'];
+const buttons=['llm-test','llm-save','llm-fetch','llm-enabled','llm-add','llm-remove'];
 let state=null,draft=null,selected='',typedKeys={},clearKeys=new Set(),busy=false;
 const current=()=>draft.profiles.find(p=>p.id===selected);
 const keyless=p=>!!state.presets.find(item=>item.id===p.preset)?.keyless;
@@ -42,13 +38,6 @@ function readForm(){
  for(const [key,id] of Object.entries(fields))p[key]=$(id).value.trim();
  const typed=$('llm-key').value.trim();
  if(typed){typedKeys[p.id]=typed;clearKeys.delete(p.id);}else delete typedKeys[p.id];
- draft.vision={profile:$('llm-vision-profile').value,model:$('llm-vision-model').value.trim()};
-}
-function fillVision(){
- const v=draft.vision;
- if(!draft.profiles.some(p=>p.id===v.profile))v.profile='';
- $('llm-vision-profile').replaceChildren(new Option('跟聊天相同（使用中的配置）',''),...draft.profiles.map(item=>new Option(item.name,item.id)));
- $('llm-vision-profile').value=v.profile;$('llm-vision-model').value=v.model;
 }
 function fillForm(){
  const p=current();
@@ -61,11 +50,10 @@ function fillForm(){
  $('llm-key-clear').hidden=!saved;
  $('llm-proxy-row').hidden=p.proxyMode!=='custom';
  $('llm-remove').disabled=busy||draft.profiles.length<=1;
- fillVision();
 }
 function apply(next){
  state=next;
- draft={enabled:next.enabled,active:next.active,profiles:next.profiles.map(({hasKey,...p})=>({...p})),vision:{profile:next.vision?.profile||'',model:next.vision?.model||''}};
+ draft={enabled:next.enabled,active:next.active,profiles:next.profiles.map(({hasKey,...p})=>({...p}))};
  if(!draft.profiles.length)draft.profiles.push(blankProfile('deepseek'));
  selected=draft.profiles.some(p=>p.id===next.active)?next.active:draft.profiles[0].id;
  typedKeys={};clearKeys=new Set();$('llm-model-list').hidden=true;
@@ -120,18 +108,10 @@ $('llm-test').onclick=async()=>{
  const result=await run({action:'test',...target()},'正在测试连接…');if(!result)return;
  status(result.reply?`✅ 连接成功（${result.seconds} 秒），${result.model} 回复：${result.reply}`:`✅ 连接成功（${result.seconds} 秒），但模型没给出正文：开着思考模式时可能把输出都用来思考了，聊天一般不受影响。`);
 };
-$('llm-save').onclick=()=>save($('llm-enabled').checked,(name,enabled)=>enabled?`已保存，聊天和 B 站内容理解现在使用「${name}」。`:'已保存。当前跟随本机 Codex（含 CC Switch 中转），勾选上方开关即可切换。');
-$('llm-vision-test').onclick=async()=>{
- readForm();
- const v=draft.vision,p=draft.profiles.find(item=>item.id===v.profile)||current();
- $('llm-vision-status').textContent=`正在把她的头像发给「${p.name}」看…`;
- const result=await run({action:'vision-test',profile:p,model:v.model,apiKey:typedKeys[p.id]||''},'正在测试识图…');
- $('llm-vision-status').textContent=result?`✅ 能看图（${result.seconds} 秒），${result.model} 说：${result.reply}`:`✗ ${$('llm-status').textContent}`;
- if(result)status('识图测试通过，记得点「保存」。');
-};
+$('llm-save').onclick=()=>save($('llm-enabled').checked,(name,enabled)=>enabled?`已保存，聊天现在使用「${name}」。`:'已保存。当前跟随本机 Codex（含 CC Switch 中转），勾选上方开关即可切换。');
 $('llm-enabled').onchange=()=>{
  const on=$('llm-enabled').checked;if(on)expand(true);
- save(on,(name,enabled)=>enabled?`已启用：聊天和 B 站内容理解改用「${name}」。`:'已切回本机 Codex（含 CC Switch 中转），第三方配置仍保留。');
+ save(on,(name,enabled)=>enabled?`已启用：聊天改用「${name}」。`:'已切回本机 Codex（含 CC Switch 中转），第三方配置仍保留。');
 };
 async function load(){
  try{

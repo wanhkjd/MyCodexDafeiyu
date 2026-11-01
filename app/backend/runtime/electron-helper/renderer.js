@@ -5,7 +5,7 @@
  * events.js → renderer.js（本文件）。本文件只做：配置加载 / 错误处理 / 启动装配 / 素材注入。
  *
  * 与浏览器 overlay 严格对齐（宠物行为/文案完全一致）：
- *   - 纯逻辑（常量/选择器/移动几何/余额折算/拍平）来自 shared-core.js
+ *   - 纯逻辑（常量/选择器/移动几何/拍平）来自 shared-core.js
  *     （= src/shared 的构建产物，window.PetShared）——与浏览器 bundle 共用同一份源码；
  *   - 配置唯一来源 = 宿主 /dsh-pet-7340/config 的**成品聚合**（host readAllConfig 合并，
  *     绝对正确、字段填满）：一步 fetch → S.flattenConfigPets 拍平，加载失败**大声报错**
@@ -85,6 +85,7 @@ async function boot() {
     }
     for (const s of sprites) s.dispose();
     sprites = [new PetSprite(pet)];
+    stateBaseline = null; // Restore current progress/state for the new sprite, not historical events.
     for (const s of sprites) { s.suspended = lifecyclePhase === 'suspend'; s.forcedPassThrough = forcedPassThrough; s.edgePeek.setEnabled(displaySettings.edgePeek); s.playIdle(); }
     startLoops();
   } catch (e) {
@@ -186,6 +187,7 @@ window.petBridge?.onForcedPassThrough?.(active => {
     s._interactive = null;
     s.syncInputBusy();
     s.setInteractive(false);
+    s.sendBounds(s.pos.x, s.pos.y);
   }
 });
 

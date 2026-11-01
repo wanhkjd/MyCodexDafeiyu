@@ -1,7 +1,7 @@
 /* Drag math in CSS workspace coordinates; no window or user-data access. */
 'use strict';
 var DragMotion = (() => {
-  const defaults = Object.freeze({ dragPhysics: true, dropGravity: false, throwStrength: 'standard', lockPosition: false, shiftDrag: false, collisionEnabled: true, collisionRestitution: 0.82, collisionFriction: 0.08, collisionMass: 1, collisionMaxImpulse: 9000 });
+  const defaults = Object.freeze({ dragPhysics: true, dropGravity: false, throwStrength: 'standard', lockPosition: false, shiftDrag: false, collisionEnabled: true, petCollision: false, collisionRestitution: 0.82, collisionFriction: 0.08, collisionMass: 1, collisionMaxImpulse: 9000 });
   const caps = Object.freeze({ gentle: 3600, standard: 4800, strong: 7200, crazy: 9000 });
   const normalize = value => Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, value?.[key] ?? fallback]));
   const cap = settings => caps[settings?.throwStrength] || caps.standard;

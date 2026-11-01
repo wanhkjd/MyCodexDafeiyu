@@ -1,6 +1,6 @@
 {
   "name": "codex-dafeiyu",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "description": "Windows 桌面大肥鱼：可运行分发代码整理版",
   "license": "MIT",
@@ -15,8 +15,7 @@
   },
   "dependencies": {
     "@electron-internal/extract-zip": "1.0.5",
-    "@electron/get": "5.1.0",
-    "qrcode": "1.5.4"
+    "@electron/get": "5.1.0"
   },
   "devDependencies": {
     "electron": "43.8.4"

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
-export const DRAG_DEFAULTS = Object.freeze({ dragPhysics: true, dropGravity: false, throwStrength: 'standard', lockPosition: false, shiftDrag: false, collisionEnabled: true, collisionRestitution: 0.82, collisionFriction: 0.08, collisionMass: 1, collisionMaxImpulse: 9000 });
+export const DRAG_DEFAULTS = Object.freeze({ dragPhysics: true, dropGravity: false, throwStrength: 'standard', lockPosition: false, shiftDrag: false, collisionEnabled: true, petCollision: false, collisionRestitution: 0.82, collisionFriction: 0.08, collisionMass: 1, collisionMaxImpulse: 9000 });
 // dsh-pet's four speed caps (px/s). These affect throws, not gravity.
 export const THROW_PRESETS = Object.freeze([
   { value: 'gentle', label: '轻柔', speed: 3600 }, { value: 'standard', label: '标准', speed: 4800 },

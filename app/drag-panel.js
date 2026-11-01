@@ -3,7 +3,7 @@
   const get = id => document.getElementById(id), form = get('drag-settings-form'), fields = form.querySelector('fieldset');
   const status = get('drag-settings-status'), strength = get('drag-throwStrength');
   const numericKeys = ['collisionRestitution', 'collisionFriction', 'collisionMass', 'collisionMaxImpulse'];
-  const keys = ['dragPhysics', 'dropGravity', 'throwStrength', 'lockPosition', 'shiftDrag', 'collisionEnabled', ...numericKeys];
+  const keys = ['dragPhysics', 'dropGravity', 'throwStrength', 'lockPosition', 'shiftDrag', 'collisionEnabled', 'petCollision', ...numericKeys];
   let state, busy = false, dirty = false, revision = 0, stopped = false;
   const values = () => Object.fromEntries(keys.map(k => [k, k === 'throwStrength' ? strength.value : numericKeys.includes(k) ? get('drag-' + k).valueAsNumber : get('drag-' + k).checked]));
   function render(next) {

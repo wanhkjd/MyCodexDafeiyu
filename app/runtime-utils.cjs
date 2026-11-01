@@ -53,27 +53,22 @@ function upgradeQuotes(root, data) {
 }
 
 function checkPackage(root, { source = false } = {}) {
-  const required = ['panel-layout.js','panel-layout.css','drag-panel.js','backend/runtime/drag-settings.mjs','backend/runtime/electron-helper/drag-motion.js','windows-activation.cjs','integrations-control.cjs','integrations-panel.js','backend/runtime/harness-activity.mjs','backend/runtime/work-activity.mjs','backend/runtime/codex-activity.mjs',
+  const required = ['panel-layout.js','panel-layout.css','drag-panel.js','backend/runtime/drag-settings.mjs','backend/runtime/electron-helper/drag-motion.js','backend/runtime/electron-helper/pet-collision.cjs','windows-activation.cjs','integrations-control.cjs','integrations-panel.js','backend/runtime/harness-activity.mjs','backend/runtime/work-activity.mjs','backend/runtime/codex-activity.mjs',
     'integrations/harness-bridge/index.mjs','integrations/harness-bridge/package.json','integrations/harness-bridge/cordis.patch.yml','node.exe','backend-entry.mjs','DesktopBridge.exe','backend/lib/standalone.js',
     'backend/assets/config.jsonc','backend/runtime/electron-helper/main.js','assets/icon.ico',
-    'pet-size-panel.js','backend/runtime/pet-size.mjs','character-panel.js','backend/runtime/characters.mjs','backend/runtime/electron-helper/flight-motion.js',
+    'position-panel.js','backend/runtime/position-settings.mjs','pet-size-panel.js','backend/runtime/pet-size.mjs','character-panel.js','backend/runtime/characters.mjs','backend/runtime/electron-helper/flight-motion.js',
     'backend/assets/characters/bailong/ASSETS.md','backend/assets/characters/bailong/outputs/白龙桌宠素材/素材清单.json',
     'backend/assets/characters/bailong/outputs/白龙桌宠素材/透明WebM/idle.webm',
     'defaults/quotes.json','defaults/dsh-pet/main-config.jsonc',
-    'reminders-panel.js','backend/runtime/reminders.mjs','backend/runtime/quota-cache.mjs',
+    'backend/runtime/codex-progress.mjs',
+    'reminders-panel.js','backend/runtime/reminders.mjs',
     'llm-panel.js','backend/runtime/third-party-llm.mjs','backend/runtime/model-router.mjs','backend/runtime/codex-chat.mjs',
     'mood-panel.js','backend/runtime/mood.mjs','defaults/mood-quotes.json','backend/runtime/persona.mjs',
-    'bili-panel.js','bili-login.cjs','node_modules/qrcode/lib/core/qrcode.js','node_modules/dijkstrajs/dijkstra.js',
-    'backend/runtime/bili/api.mjs','backend/runtime/bili/feed.mjs','backend/runtime/bili/watch.mjs','backend/runtime/bili/frames.mjs',
-    'backend/runtime/bili/prompts.mjs','backend/runtime/bili/life.mjs','backend/runtime/bili/grabber.cjs','backend/runtime/bili/grabber.js',
     'backend/runtime/electron-helper/visibility-recovery.js','backend/runtime/electron-helper/features.js',
-    'backend/runtime/electron-helper/game.html','backend/runtime/electron-helper/game.js',
-    'backend/runtime/electron-helper/game-preload.js','backend/runtime/electron-helper/game-physics.js',
     'backend/runtime/electron-helper/rice-feeding.js','backend/runtime/electron-helper/rice-preload.js',
     'backend/runtime/electron-helper/rice.html','backend/runtime/electron-helper/rice.js',
-    'backend/assets/pic/rice-bowl.png','backend/assets/webm/白饭落地.webm',
-    'backend/assets/webm/控制-奔跑.webm','backend/assets/webm/控制-摔倒.webm',
-    'backend/assets/webm/控制-奔跑摔倒.webm'];
+    'backend/assets/pic/rice-bowl.png',
+    'backend/assets/webm/控制-奔跑.webm'];
   const missing = required.filter(file => !(source && (file === 'node.exe' || file.startsWith('node_modules/'))) && !fs.existsSync(path.join(root, file)));
   if (missing.length) throw new Error('程序文件不完整，请完整解压发布包后重试。缺少：' + missing.join('、'));
 }

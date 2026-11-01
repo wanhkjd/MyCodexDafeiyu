@@ -1,6 +1,6 @@
 import { connect } from './codex-rpc.mjs';
 import { buildPersona } from './persona.mjs';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 // The desktop companion follows the local model configuration, never an account/model family.
@@ -53,8 +53,8 @@ export function createChatClient({ connectToCodex = connect, now = Date.now, mod
   }
 
   // All requests keep Codex's provider/auth/proxy configuration; only companion tool access is restricted.
-  async function request(prompt, dataDir, { system = defaultPersona, memory = '', image, mime = 'image/jpeg', onDelta, timeoutMs = responseTimeoutMs } = {}) {
-    let c, imageDir, threadId, turnId;
+  async function request(prompt, dataDir, { system = defaultPersona, memory = '', onDelta, timeoutMs = responseTimeoutMs } = {}) {
+    let c, threadId, turnId;
     clearTimeout(idleTimer);
     activeRequests++;
     try {
@@ -77,16 +77,6 @@ export function createChatClient({ connectToCodex = connect, now = Date.now, mod
       const cwd = join(dataDir, 'chat-sandbox');
       mkdirSync(cwd, { recursive: true });
       const input = [{ type: 'text', text: prompt, text_elements: [] }];
-      if (image !== undefined) {
-        const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
-        if (!ext || typeof image !== 'string' || !image || image.length > 24 * 1024 * 1024 || !/^[A-Za-z0-9+/\s]*={0,2}$/.test(image)) throw new Error('识图图片格式或大小不支持');
-        const bytes = Buffer.from(image, 'base64');
-        if (!bytes.length || bytes.length > 16 * 1024 * 1024) throw new Error('识图图片为空或过大');
-        imageDir = mkdtempSync(join(cwd, 'vision-'));
-        const file = join(imageDir, `frame.${ext}`);
-        writeFileSync(file, bytes);
-        input.push({ type: 'localImage', path: file });
-      }
       const { thread } = await c.rpc('thread/start', {
         model, cwd, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only',
         baseInstructions: system, developerInstructions: memory ? memoryInstructions + memory : null, config,
@@ -124,7 +114,6 @@ export function createChatClient({ connectToCodex = connect, now = Date.now, mod
       if (activeRequests === 1 && (!c || warm === c)) closeChatConnection();
       throw error;
     } finally {
-      if (imageDir) rmSync(imageDir, { recursive: true, force: true });
       activeRequests--;
       if (warm && !activeRequests) {
         clearTimeout(idleTimer); idleTimer = setTimeout(closeChatConnection, idleMs); idleTimer.unref();
@@ -142,19 +131,9 @@ export function createChatClient({ connectToCodex = connect, now = Date.now, mod
     } catch (error) { return { ok: false, reason: 'generate-error', message: error.message }; }
   }
 
-  // Background prompts/JSON/diaries must not inherit chat's 2000/1800-character limits.
-  async function generate({ system, prompt }, dataDir) {
-    return (await request(prompt, dataDir, { system, timeoutMs: Math.max(responseTimeoutMs, 150000) })).text.trim();
-  }
-  async function see({ image, mime = 'image/jpeg', system, prompt }, dataDir) {
-    if (image === undefined) throw new Error('识图图片不能为空');
-    return (await request(prompt, dataDir, { system, image, mime, timeoutMs: Math.max(responseTimeoutMs, 120000) })).text.trim();
-  }
-  return { chat, generate, see, closeChatConnection };
+  return { chat, closeChatConnection };
 }
 
 const client = createChatClient();
 export const chat = client.chat;
-export const generate = client.generate;
-export const see = client.see;
 export const closeChatConnection = client.closeChatConnection;

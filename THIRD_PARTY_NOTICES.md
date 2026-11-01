@@ -7,8 +7,6 @@
 | [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 桌宠源码、桌面窗口、交互、动画、配置与原项目所附素材 | 代码：[dsh-pet MIT](licenses/dsh-pet-MIT.txt)；动画、提示词、源视频另见[素材使用说明](licenses/dsh-pet-ASSET-NOTICE.txt) |
 | [T7moris/GPT-Niang](https://github.com/T7moris/GPT-Niang) | `backend/runtime/codex-usage/` 中额度读取与套餐解析，另有本项目的路径兼容修改 | [GPT-Niang MIT](licenses/GPT-Niang-MIT.txt)；运行时目录保留副本 |
 | [ERUIHNIYHBKBNF/dafeiyu-persona](https://github.com/ERUIHNIYHBKBNF/dafeiyu-persona) | 聊天提示词与大肥鱼角色表达的参考 | [人设 MIT](licenses/dafeiyu-persona-MIT.txt)；`backend/runtime/DAFEIYU-PERSONA-LICENSE` |
-| [Alterssss/dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale) | 「她的 B 站」：B 站接口与 WBI 签名、请求保护、选题打分、看懂视频（字幕、弹幕热区、热评）、扫码登录、作息与分享闸门的规则，移植改写在 `backend/runtime/bili/` 与 `bili-login.cjs` | [dsh-bili-whale MIT](licenses/dsh-bili-whale-MIT.txt) |
-| [soldair/node-qrcode](https://github.com/soldair/node-qrcode) 1.5.4、[tcort/dijkstrajs](https://github.com/tcort/dijkstrajs) 1.0.3 | 扫码登录的二维码生成，通过根目录锁文件安装，发布时收录正式运行依赖到 `resources/app/node_modules/` | [qrcode MIT](licenses/qrcode-MIT.txt)；[dijkstrajs MIT](licenses/dijkstrajs-MIT.txt) |
 
 GPT-Niang 的 MIT 范围限于其源码与文档，不包括其角色和图片。本项目没有收录它的白发龙娘角色素材。桌宠的主要角色与动画来自 dsh-pet，保留其来源；图标和新增敬礼动画随本修改版提供。字体、角色形象、名称和第三方标识的权利归各自权利人，本仓库不声称这些权利属于本项目作者。
 

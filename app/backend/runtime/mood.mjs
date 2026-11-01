@@ -613,7 +613,7 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
     },
     tick,
     flush,
-    /** Interaction reported by the pet window, the control game or chat. */
+    /** Interaction reported by the pet window, the rice feeding or chat. */
     event(type, now = clock()) {
       if (!EVENTS.includes(type)) return { ok: false, message: '未知互动' };
       if (type === 'feed') {
@@ -766,17 +766,6 @@ export function moodService(dataDir, { publish = () => {}, say = () => {}, play 
     /** A chat reply counts as speech: whispers wait their 3 minutes after it too. */
     spoke(now = clock()) {
       lastSayAt = now;
-    },
-    /** A line from her life elsewhere (Bilibili): queued like other moments, said when she may speak and you are here. */
-    utter({ text, animation, within = 6 * HOUR } = {}, now = clock()) {
-      queueMoment({ text, animation, allowBusy: true, expires: now + within, templates: [] }, now);
-      flush(now);
-    },
-    /** Joy from her life elsewhere (a video she loved); it fades by its half-life like any other joy. */
-    delight(amount, reason, now = clock()) {
-      if (!db.enabled) return;
-      feel('joy', amount, reason, now);
-      publishNow(now);
     },
     command(body, now = clock()) {
       if (body?.action === 'feed') return this.event('feed', now);

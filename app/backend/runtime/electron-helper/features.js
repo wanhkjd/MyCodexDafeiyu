@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   const style=document.createElement('style');
-  style.textContent='.pet-bub-stale{font-style:italic;color:#77818f;font-size:.8em}.pet-sticky{position:fixed;width:220px;max-height:190px;overflow:auto;padding:12px;background:rgba(255,248,223,.97);color:#514b39;border:1px solid #e9d8a1;border-radius:14px;box-shadow:0 5px 20px #2b344b22;z-index:9;font:12px/1.5 "Microsoft YaHei",sans-serif;pointer-events:auto;overflow-wrap:anywhere}.pet-sticky strong{display:block}.pet-sticky p{margin:6px 0}.pet-sticky button{font:inherit;background:#fffaf1;border:1px solid #e8d9b4;border-radius:7px;color:#65552f;padding:4px 7px;margin:3px 3px 0 0;cursor:pointer}.pet-sticky em{font-size:11px;color:#897544}.pet-sticky[hidden]{display:none}';
+  style.textContent='.pet-sticky{position:fixed;width:220px;max-height:190px;overflow:auto;padding:12px;background:rgba(255,248,223,.97);color:#514b39;border:1px solid #e9d8a1;border-radius:14px;box-shadow:0 5px 20px #2b344b22;z-index:9;font:12px/1.5 "Microsoft YaHei",sans-serif;pointer-events:auto;overflow-wrap:anywhere}.pet-sticky strong{display:block}.pet-sticky p{margin:6px 0}.pet-sticky button{font:inherit;background:#fffaf1;border:1px solid #e8d9b4;border-radius:7px;color:#65552f;padding:4px 7px;margin:3px 3px 0 0;cursor:pointer}.pet-sticky em{font-size:11px;color:#897544}.pet-sticky[hidden]{display:none}';
   document.head.append(style);
   const pin=document.createElement('aside');pin.className='pet-sticky';pin.hidden=true;pin.setAttribute('aria-live','polite');document.body.append(pin);
   let signature='',state=null,notified=new Set(),connectionFailed=false;

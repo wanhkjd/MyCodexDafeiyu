@@ -5,16 +5,12 @@ const path = require('node:path');
 const { spawn, execFile } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const { prepareData, checkPackage, readBackendAddress, backendEnvironment } = require('./runtime-utils.cjs');
-const { createBiliLogin } = require('./bili-login.cjs');
 const { DISPLAY_DEFAULTS, readDisplaySettings, saveDisplaySettings } = require('./display-settings.cjs');
 app.setAppUserModelId('local.codexpet.bluemaid');
 const root = __dirname;
 const icon = path.join(root, 'assets', 'icon.ico');
 
-if (process.env.CODEX_PET_FRAMES) {
-  // 「看画面」: the backend started this copy only to grab video frames in a hidden window.
-  require('./backend/runtime/bili/grabber.cjs');
-} else if (process.env.CODEX_PET_HELPER === '1') {
+if (process.env.CODEX_PET_HELPER === '1') {
   const rendererData = path.join(app.getPath('appData'), 'CodexPet', 'renderer');
   fs.mkdirSync(rendererData, { recursive: true });
   app.setPath('userData', rendererData);
@@ -42,6 +38,17 @@ if (process.env.CODEX_PET_FRAMES) {
     try { visible = JSON.parse(fs.readFileSync(control, 'utf8')).visible !== false; } catch {}
     const backend = path.join(root, 'backend');
     const log = fs.createWriteStream(path.join(userRoot, 'app.log'), { flags: 'a' });
+    let logFailed = false, logClosed = false;
+    log.on('error', () => { logFailed = true; });
+    function writeLog(chunk) {
+      if (logFailed || logClosed || log.destroyed || log.writableEnded) return;
+      try { log.write(chunk); } catch { logFailed = true; }
+    }
+    function closeLog() {
+      if (logClosed) return;
+      logClosed = true;
+      if (!logFailed && !log.destroyed) try { log.end(); } catch { logFailed = true; }
+    }
     let pendingLog = '';
     function migrate() {
       checkPackage(root);
@@ -73,7 +80,7 @@ if (process.env.CODEX_PET_FRAMES) {
           } catch (error) { if (method !== 'GET' || attempt > 0) throw error; await new Promise(resolve => setTimeout(resolve, 300)); }
         }
       } catch (error) {
-        log.write(`[connection] ${new Date().toISOString()} ${method} ${route.split('?')[0]} ${error.cause?.code || error.name || 'unknown'}\n`);
+        writeLog(`[connection] ${new Date().toISOString()} ${method} ${route.split('?')[0]} ${error.cause?.code || error.name || 'unknown'}\n`);
         throw new Error('暂时连接不上桌宠后台，请稍后重试。若刚发送过消息，请先查看聊天记录，避免重复发送。');
       }
     }
@@ -99,19 +106,6 @@ if (process.env.CODEX_PET_FRAMES) {
     }
     function pushKeys(keys) {
       if (child?.stdin?.writable) child.stdin.write(JSON.stringify({ type: 'llm-keys', keys }) + '\n');
-    }
-    // Her Bilibili login: the QR flow and the encrypted cookies stay in this process; the backend gets them over stdin.
-    function pushBili(cred) {
-      if (child?.stdin?.writable) child.stdin.write(JSON.stringify({ type: 'bili-cred', cred }) + '\n');
-    }
-    const biliLogin = createBiliLogin({ file: path.join(userRoot, 'bili-cred.bin'), push: pushBili });
-    async function biliLoginAction(body) {
-      const op = body && typeof body === 'object' ? body.op : '';
-      if (op === 'start') return await biliLogin.start();
-      if (op === 'poll') return await biliLogin.poll(String(body.id ?? ''));
-      if (op === 'cancel') return biliLogin.cancel(String(body.id ?? ''));
-      if (op === 'logout') return biliLogin.logout();
-      throw new Error('未知操作');
     }
     // Keyboard/mouse idle time lets the pet's mood tell "you are here" from "you stepped away".
     function pushPresence() {
@@ -151,7 +145,8 @@ if (process.env.CODEX_PET_FRAMES) {
         if(target.isDestroyed())return;
         target.setAlwaysOnTop(true, 'screen-saver');target.moveTop();
         target.focus();target.webContents.focus();
-        target.webContents.executeJavaScript('document.getElementById("reminder-card")?.scrollIntoView({block:"start"});document.getElementById("reminder-text")?.focus({preventScroll:true})').catch(()=>{});
+        const detail = JSON.stringify({ view: 'reminders' }).replace(/</g, '\u003c');
+        target.webContents.executeJavaScript('window.dispatchEvent(new CustomEvent("pet-manager-open",{detail:' + detail + '}))').catch(()=>{});
       };
       const ready=()=>{
         if(target.isDestroyed())return;
@@ -204,13 +199,13 @@ if (process.env.CODEX_PET_FRAMES) {
       quitting = true;
       try { if (backendReady) await fetch(base + '/shutdown', { method: 'POST', headers, signal: AbortSignal.timeout(1500) }); } catch {}
       if (child && child.exitCode === null) child.kill();
-      tray?.destroy(); log.end(); app.quit();
+      tray?.destroy(); closeLog(); app.quit();
     }
     app.on('second-instance', (_event, args) => { if (args.includes('--quit')) void quitApp(); else showPanel(); });
     app.on('before-quit', event => { if (!quitting) { event.preventDefault(); void quitApp(); } });
     app.on('window-all-closed', () => {});
     app.whenReady().then(() => {
-      try { migrate(); } catch (error) { dialog.showErrorBox('桌宠暂时无法启动', error.message); quitting = true; log.end(); app.quit(); return; }
+      try { migrate(); } catch (error) { dialog.showErrorBox('桌宠暂时无法启动', error.message); quitting = true; closeLog(); app.quit(); return; }
       setVisible(visible);
       tray = new Tray(icon); tray.setToolTip('Codex-dafeiyu'); tray.on('click', showPanel); updateTray();
       ipcMain.handle('pet:status', async () => {
@@ -235,25 +230,26 @@ if (process.env.CODEX_PET_FRAMES) {
           if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '拖拽配置仅允许从管理面板操作' };
           return await request('/dsh-pet-7340/drag-settings', 'POST', message);
         }
+        if (action === 'position-settings-state' || action === 'position-settings-save') {
+          if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '位置设置仅允许从管理面板操作' };
+          return await request('/dsh-pet-7340/position-settings', action === 'position-settings-save' ? 'POST' : 'GET', message);
+        }
         if (action === 'pet-size-state') return await request('/dsh-pet-7340/pet-size');
         if (action === 'pet-size-save') {
           if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '大小配置仅允许从管理面板操作' };
           return await request('/dsh-pet-7340/pet-size', 'POST', { size: message?.size });
         }
         if (action === 'characters-state') return await request('/dsh-pet-7340/characters');
-        if (['characters-select', 'characters-folder', 'characters-behavior', 'characters-import-existing'].includes(action)) {
+        if (['characters-select', 'characters-behavior', 'characters-companion'].includes(action)) {
           if (!panel || _event.sender !== panel.webContents || _event.senderFrame !== panel.webContents.mainFrame) return { ok: false, message: '形象配置仅允许从管理面板操作' };
           if (action === 'characters-behavior') return await request('/dsh-pet-7340/characters', 'POST', { action: 'behavior', behavior: message });
-          if (action === 'characters-import-existing') return await request('/dsh-pet-7340/characters', 'POST', { action: 'import-existing' });
+          if (action === 'characters-companion') return await request('/dsh-pet-7340/characters', 'POST', { action: 'companion', id: message?.id });
           if (action === 'characters-select') {
             if (!['dafeiyu', 'bailong'].includes(message?.id)) return { ok: false, message: '无效形象' };
             const chat = await request('/dsh-pet-7340/pet-chat');
             if (chat.pending) return { ok: false, message: '请等待当前聊天回复完成后再切换形象' };
-            return await request('/dsh-pet-7340/characters', 'POST', { action: 'select', id: message.id, ...(message.source !== undefined ? { source: message.source } : {}) });
+            return await request('/dsh-pet-7340/characters', 'POST', { action: 'select', id: message.id });
           }
-          const picked = await dialog.showOpenDialog(panel, { title: '选择解压后的 BailongPet 文件夹', properties: ['openDirectory'] });
-          if (picked.canceled || !picked.filePaths.length) return { ok: true, canceled: true };
-          return await request('/dsh-pet-7340/characters', 'POST', { action: 'register', root: picked.filePaths[0] });
         }
         if (action === 'open-codex') { await openCodex(); return {ok:true}; }
         if (action === 'open-harness') { await integrations.openHarness(data); return {ok:true}; }
@@ -275,22 +271,11 @@ if (process.env.CODEX_PET_FRAMES) {
         if (action === 'reminders-command') return await request('/dsh-pet-7340/reminders','POST',message);
         if (action === 'mood-state') return await request('/dsh-pet-7340/mood');
         if (action === 'mood-command') return await request('/dsh-pet-7340/mood','POST',message);
-        if (action === 'control') { setVisible(true); panel?.hide(); return await request('/dsh-pet-7340/control','POST'); }
         if (action === 'chat-command') return await request('/dsh-pet-7340/pet-chat','POST',message);
         if (action === 'llm-state') return withKeyFlags(await request('/dsh-pet-7340/llm'));
         if (action === 'llm-command') return await llmCommand(message);
-        if (action === 'bili-state') return await request('/dsh-pet-7340/bili');
-        if (action === 'bili-command') return await request('/dsh-pet-7340/bili','POST',message);
-        if (action === 'bili-login') return await biliLoginAction(message);
-        if (action === 'bili-open') {
-          const bv = String(message ?? '');
-          if (!/^BV[0-9A-Za-z]{10}$/.test(bv)) throw new Error('视频编号不对');
-          await shell.openExternal(`https://www.bilibili.com/video/${bv}/`);
-          return { ok: true };
-        }
         if (action === 'chat') return await request('/dsh-pet-7340/chat?pet=main','POST',{text:String(message ?? '').slice(0,2000)});
         if (action === 'toggle') { setVisible(!visible); return { ok: true }; }
-        if (action === 'quota') return { ok: false, message: 'Codex 账号额度查询已关闭，不影响其他联动。' };
         if (action === 'quote') return await request('/dsh-pet-7340/whisper?pet=main', 'POST');
         if (action === 'quotes') return { ok: !(await shell.openPath(path.join(data, 'quotes.json'))) };
         if (action === 'settings') return { ok: !(await shell.openPath(path.join(data, 'dsh-pet', 'main-config.jsonc'))) };
@@ -304,7 +289,7 @@ if (process.env.CODEX_PET_FRAMES) {
       const managerTimer=setInterval(()=>{
         try {
           const marker=JSON.parse(fs.readFileSync(path.join(data,'manager-request.json'),'utf8'));
-          if(marker.id>lastManagerRequest && marker.view==='reminders') {
+          if(marker.id>lastManagerRequest && marker.view === 'reminders') {
             lastManagerRequest=marker.id;showReminders();
           }
         }catch{}
@@ -315,19 +300,18 @@ if (process.env.CODEX_PET_FRAMES) {
       child = spawn(path.join(root, 'node.exe'), [path.join(root, 'backend-entry.mjs')], { env, cwd: backend, windowsHide: true, stdio: ['pipe','pipe','pipe'] });
       child.stdin.on('error', () => {});
       pushKeys(readKeys());
-      pushBili(biliLogin.credentials());
       pushPresence();
       setInterval(pushPresence, 30000).unref();
       for (const event of ['lock-screen', 'unlock-screen', 'resume']) powerMonitor.on(event, pushPresence);
       child.stdout.on('data', chunk => {
-        log.write(chunk); pendingLog += chunk.toString();
+        writeLog(chunk); pendingLog += chunk.toString();
         const lines = pendingLog.split('\n'); pendingLog = lines.pop();
         for (const line of lines) {
           const address = readBackendAddress(line);
           if (address) { base = address; backendReady = true; phase = '桌宠已启动'; }
         }
       });
-      child.stderr.on('data', chunk => log.write(chunk));
+      child.stderr.on('data', chunk => writeLog(chunk));
       child.on('error', () => { backendReady = false; phase = '桌宠启动失败，请退出后重试'; });
       child.on('exit', () => { backendReady = false; if (!quitting) phase = '桌宠已停止，请退出软件后重新打开'; });
     });

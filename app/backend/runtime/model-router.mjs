@@ -1,4 +1,4 @@
-// One switch for chat, Bilibili judgments/diaries and frames. Never silently change provider on failure.
+// Route chat to the selected provider; never silently change provider on failure.
 import * as thirdParty from './third-party-llm.mjs';
 import * as codex from './codex-chat.mjs';
 
@@ -12,10 +12,6 @@ export function createModelRouter(dataDir, { thirdPartyClient = thirdParty, code
   const client = () => status().kind === 'third-party' ? thirdPartyClient : codexClient;
   return {
     status,
-    visionStatus: () => status().kind === 'third-party' ? thirdPartyClient.visionStatus(dataDir)
-      : { ok: true, name: '本机 Codex', model: '当前配置的模型', sameAsChat: true, kind: 'codex', message: '跟随本机 Codex；画面识别取决于当前模型是否支持图片' },
     chat: (text, history, _dir, options) => client().chat(text, history, dataDir, options),
-    generate: options => client().generate(options, dataDir),
-    see: options => client().see(options, dataDir),
   };
 }

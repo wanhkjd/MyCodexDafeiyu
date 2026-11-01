@@ -27,6 +27,8 @@ export const BAILONG_ACTIONS = {
   吓一跳: ['13'], 拍尾巴: ['idle06'], 吐息: ['25'], 吐泡泡: ['25'], 转圈: ['05'], 跳舞: ['18'], 鞠躬: ['04'], 打哈欠: ['14'], 思考: ['work04'],
   叹气: ['13'], 庆祝: ['18'], 吃东西: ['17'], 比心: ['20'],
 };
+// Use the same semantic animation on the wire so each pet resolves its own appearance.
+export const sharedActionAnimation = (action, animation) => ACTIONS[action]?.includes(animation) ? animation : ACTIONS[action]?.[0] || ({ 吐息: ACTIONS.吐泡泡[0], 比心: ACTIONS.害羞[0] })[action] || null;
 export const LIMITS = { name: 12, call: 12, notes: 800 };
 const DEFAULTS = { name: '', call: '', preset: 'playful', notes: '', shareState: true, actions: true };
 export function ensureSharedPersona(dataDir) {
@@ -46,8 +48,9 @@ export function readPersona(dataDir) {
   let raw = {};
   try { raw = JSON.parse(readFileSync(fileOf(dataDir), 'utf8').replace(/^\uFEFF/, '')) || {}; } catch { /* Not set up yet. */ }
   const text = (value, max) => typeof value === 'string' && value.trim().length <= max ? value.trim() : '';
+  const character = activeCharacter(dataDir);
   return {
-    ...(activeCharacter(dataDir) === 'bailong' ? { character: 'bailong' } : {}),
+    ...(character !== 'dafeiyu' ? { character } : {}),
     name: text(raw.name, LIMITS.name).replace(/\s+/g, ' '), call: text(raw.call, LIMITS.call).replace(/\s+/g, ' '),
     preset: PRESETS.some(p => p.id === raw.preset) ? raw.preset : DEFAULTS.preset,
     notes: text(raw.notes, LIMITS.notes),
@@ -93,19 +96,6 @@ export function buildPersona(settings = {}, { provider = 'codex' } = {}) {
     lines.push(`动作：可以在回复的第一行单独写一个动作标签，例如 [动作:开心]，桌宠会跟着做。只能从这些里选：${Object.keys(ACTIONS).join('、')}。只在有明显情绪时用，平常可以不写。`);
   }
   return lines.join('\n');
-}
-
-/** Who she is, without the chat-only rules: for her writing outside chat (her Bilibili life). */
-export function identityOf(settings = {}) {
-  const s = { ...DEFAULTS, ...settings };
-  const preset = PRESETS.find(p => p.id === s.preset) ?? PRESETS[0];
-  return [
-    s.name ? `你叫「${s.name}」，是一位蓝鲸拟人少女桌宠，住在用户的电脑桌面上，自称「本鱼」。` : '你是一位蓝鲸拟人少女桌宠「大肥鱼」，住在用户的电脑桌面上，自称「本鱼」。',
-    s.call ? `称呼用户为「${s.call}」。` : '称呼用户为「你」，不默认叫主人。',
-    `性格：${preset.text}`,
-    s.notes && `用户的补充设定：${s.notes}`,
-    '不编造事实，不刻薄、不辱骂。',
-  ].filter(Boolean).join('\n');
 }
 
 const MOOD_NAMES = { 睡着: '睡着了', 傲娇: '有点傲娇', 担心: '在担心用户', 开心: '很开心', 饿: '饿了', 困: '困了', 寂寞: '有点寂寞', 元气: '元气满满', 平常: '平常' };

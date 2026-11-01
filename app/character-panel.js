@@ -1,21 +1,23 @@
 (() => {
   const get = id => document.getElementById(id);
-  const controls = ['character-dafeiyu', 'character-bailong', 'character-folder', 'character-import', 'character-bundled', 'skin-large-actions', 'skin-run', 'skin-flight'];
+  const controls = ['character-companion', 'character-dafeiyu', 'character-bailong', 'skin-large-actions', 'skin-run', 'skin-flight'];
   let busy = false, state, stopped = false;
   function render(next) {
     state = next;
-    const actual = next.active === 'bailong' ? '白龙' : '大肥鱼';
-    get('character-active').textContent = '当前形象：' + actual + (next.selected !== next.active ? '（白龙素材失效，暂时回退）' : '');
+    const fallback = next.selected !== next.active || (next.companion && next.companion !== next.companionActive);
+    const nameOf = id => next.characters.find(c => c.id === id)?.name || id;
+    const actual = nameOf(next.active) + (next.companionActive ? ' ＋ ' + nameOf(next.companionActive) : '');
+    get('character-companion').value = next.companion || 'off';
+    for (const option of get('character-companion').options) option.disabled = option.value !== 'off' && !next.characters.find(c => c.id === option.value)?.available;
+    get('character-active').textContent = '当前形象：' + actual + (fallback ? '（所选素材缺失，暂时回退）' : '');
+    controls.forEach(id => { get(id).disabled = busy; });
     for (const item of next.characters) {
       const button = get('character-' + item.id);
+      if (!button) continue;
       button.setAttribute('aria-pressed', String(next.active === item.id));
-      button.disabled = busy;
+      button.disabled = busy || !item.available;
     }
-    controls.forEach(id => { get(id).disabled = busy; });
-    get('character-import').hidden = next.source === 'bundled' || !next.root || next.managed;
-    get('character-bundled').hidden = !next.bundledAvailable || next.source === 'bundled';
-    get('character-path').textContent = next.root ? (next.source === 'bundled' ? '内置素材：' : '导入素材：') + next.root : '白龙素材不可用，请恢复程序素材或重新导入。';
-    get('character-status').textContent = next.selected !== next.active ? '白龙素材失效，已切回大肥鱼。' : '';
+    get('character-status').textContent = fallback ? next.message || '所选素材不可用，暂时使用大肥鱼。' : '';
     get('skin-large-actions').checked = next.behavior?.largeActions !== false;
     get('skin-run').checked = next.behavior?.run !== false;
     get('skin-flight').checked = next.behavior?.flight !== false;
@@ -30,9 +32,7 @@
     if (busy) return;
     busy = true;
     controls.forEach(id => { get(id).disabled = true; });
-    get('character-status').textContent = action === 'characters-folder' ? '请选择素材文件夹…'
-      : action === 'characters-import-existing' ? '正在导入素材…'
-      : action === 'characters-behavior' ? '正在保存动作开关…' : '正在切换形象…';
+    get('character-status').textContent = action === 'characters-behavior' ? '正在保存动作开关…' : '正在切换形象…';
     try {
       const result = await window.pet.action(action, body);
       if (!result.ok) throw new Error(result.message || '操作失败');
@@ -42,19 +42,17 @@
       }
       busy = false;
       if (state) render(state);
-      if (!get('character-status').textContent) get('character-status').textContent = result.canceled ? '已取消' : action === 'characters-behavior' ? '已保存' : action === 'characters-import-existing' || action === 'characters-folder' ? '素材已导入' : '形象已切换';
+      if (!get('character-status').textContent) get('character-status').textContent = result.canceled ? '已取消' : action === 'characters-behavior' ? '已保存' : '形象已切换';
     } catch (error) {
       busy = false;
       if (state) render(state); else controls.forEach(id => { get(id).disabled = false; });
       get('character-status').textContent = error.message;
     }
   }
-  get('character-dafeiyu').onclick = () => act('characters-select', { id: 'dafeiyu' });
-  get('character-bailong').onclick = () => state?.characters.find(c => c.id === 'bailong')?.available
-    ? act('characters-select', { id: 'bailong' }) : act('characters-folder');
-  get('character-folder').onclick = () => act('characters-folder');
-  get('character-bundled').onclick = () => act('characters-select', { id: 'bailong', source: 'bundled' });
-  get('character-import').onclick = () => act('characters-import-existing');
+  get('character-companion').onchange = () => act('characters-companion', { id: get('character-companion').value === 'off' ? null : get('character-companion').value });
+  for (const id of ['dafeiyu', 'bailong']) get('character-' + id).onclick = () => {
+    if (state?.characters.find(c => c.id === id)?.available) void act('characters-select', { id });
+  };
   get('skin-large-actions').onchange = () => act('characters-behavior', { largeActions: get('skin-large-actions').checked });
   get('skin-run').onchange = () => act('characters-behavior', { run: get('skin-run').checked });
   get('skin-flight').onchange = () => act('characters-behavior', { flight: get('skin-flight').checked });

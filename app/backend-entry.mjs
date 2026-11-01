@@ -15,8 +15,6 @@ process.stdin.on('data', chunk => {
     if (message?.type === 'llm-keys') keyUpdate = keyUpdate.then(() => import('./backend/runtime/third-party-llm.mjs')).then(llm => llm.setKeys(message.keys)).catch(() => {});
     // System idle time from the manager, so the pet's mood knows whether you are at the computer.
     if (message?.type === 'presence') import('./backend/runtime/mood.mjs').then(mood => mood.reportPresence(message)).catch(() => {});
-    // Her Bilibili login (cookies), kept encrypted by the manager and only ever held in memory here.
-    if (message?.type === 'bili-cred') keyUpdate = keyUpdate.then(() => import('./backend/runtime/bili/api.mjs')).then(bili => bili.setCredentials(message.cred)).catch(() => {});
   }
 });
 process.stdin.on('error', () => {});

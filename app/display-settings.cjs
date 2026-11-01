@@ -26,10 +26,10 @@ function saveDisplaySettings(file, input) {
 function normalizeDisplaySettings(input) {
   return Object.fromEntries(Object.entries(DISPLAY_DEFAULTS).map(([key, fallback]) => [key, typeof input?.[key] === 'boolean' ? input[key] : fallback]));
 }
-function displayPolicy({ visible = true, settings, native = {}, game = false }) {
+function displayPolicy({ visible = true, settings, native = {} }) {
   const options = normalizeDisplaySettings(settings);
   const autoHidden = options.autoHideFullscreen && native.fullscreen === true;
-  return { visible: visible !== false && !game && !autoHidden,
+  return { visible: visible !== false && !autoHidden,
     autoHidden, passThrough: options.cursorHidePassThrough && native.cursorHidden === true,
     alwaysOnTop: options.alwaysOnTop };
 }

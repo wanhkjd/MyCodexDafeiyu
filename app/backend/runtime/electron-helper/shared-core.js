@@ -217,280 +217,6 @@ const anchorPixel = (o) => {
 };
 
 //#endregion
-//#region src/shared/balance.ts
-/**
-* 可选数字：缺省 → undefined；出现但非法 → null（调用方据此整拍跳过——不把 NaN/字符串送进展示层）。
-*/
-function optNum(value) {
-	if (value === void 0 || value === null) return void 0;
-	const n = Number(value);
-	return Number.isFinite(n) ? n : null;
-}
-function toBalanceState(raw) {
-	if (!raw || typeof raw !== "object") return null;
-	const r = raw;
-	const provider = String(r.provider ?? "unknown");
-	if (r.ok !== true) {
-		const reason = r.reason === "unsupported" || r.reason === "credential-missing" || r.reason === "fetch-error" ? r.reason : "fetch-error";
-		return {
-			provider,
-			ok: false,
-			reason,
-			message: typeof r.message === "string" ? r.message : void 0
-		};
-	}
-	const d = r.data;
-	if (!d || typeof d !== "object") return null;
-	if (r.shape === "quota") {
-		if (!Array.isArray(d.windows) || !d.windows.length) return null;
-		const windows = [];
-		for (const w of d.windows) {
-			if (!w || typeof w.label !== "string" || typeof w.used !== "number" || !Number.isFinite(w.used) || w.used < 0 || w.used > 100 || typeof w.remaining !== "number" || !Number.isFinite(w.remaining) || w.remaining < 0 || w.remaining > 100) return null;
-			windows.push({
-				label: w.label,
-				used: w.used,
-				remaining: w.remaining,
-				resetsAt: typeof w.resetsAt === "number" && Number.isFinite(w.resetsAt) && w.resetsAt > 0 && w.resetsAt <= 253402271999 ? w.resetsAt : null
-			});
-		}
-		const meta = raw;
-		return {
-			ok: true,
-			provider,
-			shape: "quota",
-			planLabel: typeof d.planLabel === "string" ? d.planLabel : "",
-			windows,
-			stale: meta.stale === true,
-			observedAt: typeof meta.observedAt === "number" ? meta.observedAt : void 0
-		};
-	}
-	if (r.shape === "windows") {
-		const monthly = optNum(d.monthly);
-		const rolling = optNum(d.rolling);
-		const weekly = optNum(d.weekly);
-		const rollingCapUsd = optNum(d.rollingCapUsd);
-		const weeklyCapUsd = optNum(d.weeklyCapUsd);
-		const monthlyCapUsd = optNum(d.monthlyCapUsd);
-		if (monthly === void 0 || monthly === null) return null;
-		if (rolling === null || weekly === null || rollingCapUsd === null || weeklyCapUsd === null || monthlyCapUsd === null) return null;
-		return {
-			provider,
-			shape: "windows",
-			ok: true,
-			rolling,
-			weekly,
-			monthly,
-			rollingCapUsd,
-			weeklyCapUsd,
-			monthlyCapUsd,
-			rollingLabel: typeof d.rollingLabel === "string" && d.rollingLabel.length > 0 ? d.rollingLabel : void 0,
-			rollingResetsAt: typeof d.rollingResetsAt === "string" ? d.rollingResetsAt : void 0,
-			weeklyResetsAt: typeof d.weeklyResetsAt === "string" ? d.weeklyResetsAt : void 0,
-			monthlyResetsAt: typeof d.monthlyResetsAt === "string" ? d.monthlyResetsAt : void 0
-		};
-	}
-	if (r.shape === "money") return {
-		provider,
-		shape: "money",
-		ok: true,
-		currency: typeof d.currency === "string" ? d.currency : void 0,
-		total: typeof d.total === "string" ? d.total : void 0,
-		granted: typeof d.granted === "string" ? d.granted : void 0,
-		toppedUp: typeof d.toppedUp === "string" ? d.toppedUp : void 0,
-		fullBalance: typeof d.fullBalance === "string" ? d.fullBalance : void 0,
-		tier: d.tier === "peak" || d.tier === "idle" ? d.tier : void 0
-	};
-	return null;
-}
-function balancePercent(v) {
-	if (v.shape === "quota") return v.windows?.length ? Math.max(...v.windows.map((w) => w.used)) : void 0;
-	if (v.shape === "money") {
-		const total = Number(v.total);
-		const full = Number(v.fullBalance);
-		if (!Number.isFinite(total)) return void 0;
-		if (!Number.isFinite(full) || full <= 0) return void 0;
-		const remaining = Math.max(0, total) / full * 100;
-		return Math.max(0, Math.min(100, 100 - remaining));
-	}
-	return Math.max(v.rolling ?? 0, v.weekly ?? 0, v.monthly ?? 0);
-}
-function balanceEventIndex(p) {
-	if (p === 100) return 5;
-	const i = Math.floor(p / 20);
-	return i < 5 ? i : 4;
-}
-const WINDOW_LABELS = {
-	weekly: "周",
-	monthly: "月"
-};
-const DEFAULT_ROLLING_LABEL = "5h";
-/** 窗口展示名：滚动窗取服务商自报值（缺省 5h），周/月走固定表 */
-function windowLabel(v, w) {
-	if (w === "rolling") return v.rollingLabel ?? DEFAULT_ROLLING_LABEL;
-	return WINDOW_LABELS[w];
-}
-/** 各窗口的满额度（USD）：全部来自数据（展示层不写死任何服务商的额度） */
-function windowQuotas(v) {
-	return {
-		rolling: v.rollingCapUsd,
-		weekly: v.weeklyCapUsd,
-		monthly: v.monthlyCapUsd
-	};
-}
-function urgentWindow(v) {
-	if (v.shape === "money") return void 0;
-	const quotas = windowQuotas(v);
-	const resets = {
-		rolling: v.rollingResetsAt,
-		weekly: v.weeklyResetsAt,
-		monthly: v.monthlyResetsAt
-	};
-	const present = [
-		"rolling",
-		"weekly",
-		"monthly"
-	].filter((w) => v[w] !== void 0);
-	if (present.length === 0) return void 0;
-	const allQuotas = present.every((w) => {
-		const quota = quotas[w];
-		return quota !== void 0 && quota > 0;
-	});
-	let best;
-	for (const w of present) {
-		const percent = v[w] ?? 0;
-		const quota = quotas[w];
-		const cand = {
-			label: windowLabel(v, w),
-			percent,
-			quotaUsd: quota,
-			remainingUsd: allQuotas && quota !== void 0 ? quota * (100 - percent) / 100 : void 0,
-			resetsAt: resets[w]
-		};
-		if (best === void 0) {
-			best = cand;
-			continue;
-		}
-		const moreUrgent = allQuotas ? (cand.remainingUsd ?? 0) < (best.remainingUsd ?? 0) : cand.percent > best.percent;
-		if (moreUrgent) best = cand;
-	}
-	return best;
-}
-function resetInText(iso) {
-	if (!iso) return "";
-	const t = new Date(iso).getTime();
-	if (!Number.isFinite(t)) return "";
-	const delta = t - Date.now();
-	if (delta <= 0) return "已重置";
-	const hoursF = delta / 36e5;
-	if (hoursF >= 96) return (Math.round(hoursF / 24 * 10) / 10).toFixed(1) + " 天";
-	return Math.max(.1, Math.round(hoursF * 10) / 10).toFixed(1) + " 小时";
-}
-/** 不可用状态的气泡行（显式说明原因，绝不伪造数字）：
-*  - unsupported：服务商未登记查询接口（配置事实，不是故障）→ 报出 provider id，便于自查"当前到底是谁"
-*  - credential-missing：缺凭证 → 次要行放 host 报的凭证名（不含 message 时不留空行）
-*  - fetch-error：抓取失败 → 次要行放底层错误
-* 次要行为空的会被剔除：空 div 在气泡里会白占一行高度。 */
-function unavailableRows(state) {
-	const rows = state.reason === "unsupported" ? [{
-		role: "error",
-		text: "当前服务商暂不支持余额查询"
-	}, {
-		role: "sub",
-		text: "当前服务商：" + state.provider
-	}] : state.reason === "credential-missing" ? [{
-		role: "error",
-		text: "缺少余额查询凭证"
-	}, {
-		role: "sub",
-		text: state.message ?? ""
-	}] : [{
-		role: "error",
-		text: "余额查询失败"
-	}, {
-		role: "sub",
-		text: state.message ?? ""
-	}];
-	return rows.filter((r) => r.text !== "");
-}
-function balanceBubbleView(state) {
-	if (state.ok) {
-		if (state.shape === "quota") {
-			const rows = [{
-				role: "sub",
-				text: "Codex · " + (state.planLabel || "额度")
-			}];
-			for (const w of state.windows ?? []) {
-				rows.push({
-					role: "label",
-					text: w.label + " 剩余 " + Math.round(w.remaining) + "%"
-				});
-				const reset = w.resetsAt ? resetInText(new Date(w.resetsAt * 1e3).toISOString()) : "";
-				rows.push({
-					role: "sub",
-					text: reset === "已重置" ? "重置时间已到，请刷新" : reset ? reset + "后重置" : "重置时间未知"
-				});
-			}
-			if (state.stale) rows.push({
-				role: "stale",
-				text: "（非实时）"
-			});
-			return rows;
-		}
-		if (state.shape !== "money") {
-			const w = urgentWindow(state);
-			if (w) {
-				const reset = resetInText(w.resetsAt);
-				const rows = [{
-					role: "label",
-					text: w.label + "额度已用 " + Math.round(w.percent) + "%"
-				}, {
-					role: "sub",
-					text: reset ? reset + "重置" : "已重置"
-				}];
-				return rows;
-			}
-			return [{
-				role: "label",
-				text: "额度数据不可用"
-			}];
-		}
-		const symbol = state.currency === "USD" ? "$" : "¥";
-		const amount = symbol + (state.total ?? "-");
-		if (!state.tier) return [{
-			role: "label",
-			text: "余额 " + amount
-		}];
-		return [
-			{
-				role: "label",
-				text: "余额（"
-			},
-			{
-				role: "tier",
-				tier: state.tier,
-				text: state.tier === "peak" ? "峰" : "谷"
-			},
-			{
-				role: "label",
-				text: "）" + amount
-			}
-		];
-	}
-	return unavailableRows(state);
-}
-function decideBalanceNotice(state, lastKey, explicit) {
-	if (state.ok) return {
-		show: false,
-		key: null
-	};
-	const key = state.reason + ":" + state.provider;
-	return {
-		show: explicit || key !== lastKey,
-		key
-	};
-}
-
-//#endregion
 //#region src/shared/whisper.ts
 function whisperBubbleView(state) {
 	if (state.ok) return [{
@@ -556,16 +282,16 @@ function flattenConfigPets(merged) {
 		const list = Array.isArray(conf?.pets) ? conf.pets : [];
 		for (const p of list) out.push({
 			...p,
-			animations: conf.animations,
-			animationWeights: conf.animationWeights,
+			animations: p.animations || conf.animations,
+			animationWeights: p.animationWeights || conf.animationWeights,
 			eventsRefreshSec: conf.eventsRefreshSec,
 			physics: conf.physics,
 			confineToScreen: conf.confineToScreen,
 			workStatusTexts: conf.workStatusTexts,
 			whisperModel: conf.whisperModel,
 			chatModel: conf.chatModel,
-			assetRoot: conf.character?.assetRoot || entry,
-			character: conf.character || p.character,
+			assetRoot: p.character?.assetRoot || conf.character?.assetRoot || entry,
+			character: p.character || conf.character,
 			extra: entry !== "main"
 		});
 	}
@@ -1274,44 +1000,6 @@ const throwStepRegion = (s, dtRaw, space, physics = DEFAULT_PHYSICS, lockScreen 
 		atRest
 	};
 };
-const PET_BOUNCE_E = .995;
-const bodyPixelBox = (o) => {
-	if (o.hitRect) return { left: o.x + o.hitRect.x, top: o.y + o.hitRect.y, right: o.x + o.hitRect.x + o.hitRect.w, bottom: o.y + o.hitRect.y + o.hitRect.h };
-	const h = o.height ?? o.size * 9 / 16;
-	return {
-		left: o.x + HIT_BOX.x0 / 640 * o.size,
-		top: o.y + o.bottomPad + HIT_BOX.y0 / 360 * h,
-		right: o.x + HIT_BOX.x1 / 640 * o.size,
-		bottom: o.y + o.bottomPad + HIT_BOX.y1 / 360 * h
-	};
-};
-const rectsOverlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-const collidePet = (fly, hit) => {
-	const hf = (fly.height ?? fly.size * 9 / 16) / 2;
-	const hh = (hit.height ?? hit.size * 9 / 16) / 2;
-	const cx = hit.x + hit.size / 2 - (fly.x + fly.size / 2);
-	const cy = hit.y + hh - (fly.y + hf);
-	const dist = Math.hypot(cx, cy);
-	if (dist < 1e-6) return null;
-	const nx = cx / dist;
-	const ny = cy / dist;
-	const vrel = (fly.vx - hit.vx) * nx + (fly.vy - hit.vy) * ny;
-	if (vrel <= 0) return null;
-	const e = PET_BOUNCE_E;
-	const m1 = fly.size * fly.size;
-	const m2 = hit.size * hit.size;
-	const v1n = fly.vx * nx + fly.vy * ny;
-	const v2n = hit.vx * nx + hit.vy * ny;
-	const v1n2 = ((m1 - e * m2) * v1n + (1 + e) * m2 * v2n) / (m1 + m2);
-	const v2n2 = ((m2 - e * m1) * v2n + (1 + e) * m1 * v1n) / (m1 + m2);
-	return {
-		fvx: fly.vx - v1n * nx + v1n2 * nx,
-		fvy: fly.vy - v1n * ny + v1n2 * ny,
-		hvx: hit.vx - v2n * nx + v2n2 * nx,
-		hvy: hit.vy - v2n * ny + v2n2 * ny
-	};
-};
-
 //#endregion
 //#region src/shared/score.ts
 const SCORE_MIN_SPEED = 400;
@@ -1564,15 +1252,6 @@ function takeChanged(s, baseline) {
 	}
 	return out;
 }
-function readBalance(leaf$1) {
-	const state = toBalanceState(leaf$1.data);
-	if (!state) return null;
-	const manual = leaf$1.data.manual === true;
-	return {
-		state,
-		manual
-	};
-}
 function readSay(leaf$1) {
 	if (!leaf$1.data || typeof leaf$1.data !== "object") return null;
 	const d = leaf$1.data;
@@ -1651,7 +1330,6 @@ exports.CANVAS_H = CANVAS_H
 exports.CHAT_CSS = CHAT_CSS
 exports.DEAD_ZONE_SPEED = DEAD_ZONE_SPEED
 exports.DEFAULT_PHYSICS = DEFAULT_PHYSICS
-exports.DEFAULT_ROLLING_LABEL = DEFAULT_ROLLING_LABEL
 exports.DEFAULT_THROW_POWER = DEFAULT_THROW_POWER
 exports.DRAG_THRESHOLD = DRAG_THRESHOLD
 exports.FEET_Y = FEET_Y
@@ -1668,7 +1346,6 @@ exports.MENU_CSS = MENU_CSS
 exports.MIN_SPAN_MS = MIN_SPAN_MS
 exports.NOTIFY_ICONS = NOTIFY_ICONS
 exports.PEAK_WEIGHT = PEAK_WEIGHT
-exports.PET_BOUNCE_E = PET_BOUNCE_E
 exports.PET_DISPLAYS = PET_DISPLAYS
 exports.PET_REF_WIDTH = PET_REF_WIDTH
 exports.RELEASE_STALE_MS = RELEASE_STALE_MS
@@ -1691,22 +1368,26 @@ exports.TOOLTIP_CLASS = TOOLTIP_CLASS
 exports.TOOLTIP_CSS = TOOLTIP_CSS
 exports.TOOLTIP_GAP_RATIO = TOOLTIP_GAP_RATIO
 exports.TRAIL_KEEP_MS = TRAIL_KEEP_MS
-exports.WINDOW_LABELS = WINDOW_LABELS
 exports.WORK_STATUS_INDEX = WORK_STATUS_INDEX
 exports.WORK_STATUS_STATES = WORK_STATUS_STATES
 exports.anchorPixel = anchorPixel
-exports.balanceBubbleView = balanceBubbleView
-exports.balanceEventIndex = balanceEventIndex
-exports.balancePercent = balancePercent
-exports.bodyPixelBox = bodyPixelBox
 exports.boundingRect = boundingRect
 exports.buildMenuTree = buildMenuTree
+// Keep the visible body on one actual monitor, not in the multi-monitor hull's holes.
+const clampPetPosition = (point, hit, areas) => {
+  const area = resolveRect(areas, point.x + hit.x + hit.w / 2, point.y + hit.y + hit.h / 2);
+  if (!area) return point;
+  const minX = area.x - hit.x, minY = area.y - hit.y;
+  return {
+    x: Math.max(minX, Math.min(Math.max(minX, area.x + area.width - hit.x - hit.w), point.x)),
+    y: Math.max(minY, Math.min(Math.max(minY, area.y + area.height - hit.y - hit.h), point.y)),
+  };
+};
+exports.clampPetPosition = clampPetPosition
 exports.clampPointInRect = clampPointInRect
 exports.clampPointToRegion = clampPointToRegion
 exports.clickScore = clickScore
-exports.collidePet = collidePet
 exports.createMemeImage = createMemeImage
-exports.decideBalanceNotice = decideBalanceNotice
 exports.displayMenuBranch = displayMenuBranch
 exports.distToRectSq = distToRectSq
 exports.estimateReleaseVelocity = estimateReleaseVelocity
@@ -1737,16 +1418,13 @@ exports.poolIncludes = poolIncludes
 exports.postAction = postAction
 exports.randomBetween = randomBetween
 exports.readAnim = readAnim
-exports.readBalance = readBalance
 exports.readSay = readSay
 exports.readWorkStatus = readWorkStatus
 exports.rectAtPoint = rectAtPoint
 exports.rectBottom = rectBottom
 exports.rectRight = rectRight
-exports.rectsOverlap = rectsOverlap
 exports.regionArea = regionArea
 exports.regionHoleRatio = regionHoleRatio
-exports.resetInText = resetInText
 exports.resolveRect = resolveRect
 exports.rollKind = rollKind
 exports.screenOfBox = screenOfBox
@@ -1761,13 +1439,11 @@ exports.throwBoundsIn = throwBoundsIn
 exports.throwSpace = throwSpace
 exports.throwStep = throwStep
 exports.throwStepRegion = throwStepRegion
-exports.toBalanceState = toBalanceState
 exports.toWorkStatus = toWorkStatus
 exports.tooltipPlacement = tooltipPlacement
 exports.translateRects = translateRects
 exports.trimTrail = trimTrail
 exports.truncate = truncate
-exports.urgentWindow = urgentWindow
 exports.whisperBubbleView = whisperBubbleView
 return exports;
 })({});

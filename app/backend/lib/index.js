@@ -1207,8 +1207,7 @@ function animationsValid(a) {
 			for (const name$1 of slot) if (typeof name$1 !== "string" || name$1.length === 0) return false;
 		} else return false;
 	}
-	const balance = evEntries.balance;
-	return Array.isArray(balance) && balance.length > 0;
+	return true;
 }
 /** animationWeights 段校验（idle/turn/move 三个非负数字） */
 function weightsValid(w) {
@@ -2572,11 +2571,10 @@ function apply(ctx) {
 		return [memesUserRoot, PACKAGE_MEMES_DIR];
 	};
 	const state = new PollStateStore();
-	let controlRequest = 0;
 	let reminders;
 	const workStatus = new WorkStatusStore();
 	let codexBusy = false;
-	let localActivity = null;
+  let localActivity = null;
 	let pendingHostActivity = { state: null, task: null };
 	ctx.effect(() => {
 		let disposed = false;
@@ -2585,7 +2583,7 @@ function apply(ctx) {
 			localActivity = module.startWorkActivityMonitor((snapshot) => {
 				codexBusy = snapshot.state !== null && snapshot.state !== 'success' && snapshot.state !== 'error';
 				state.writeSection('workStatus', snapshot);
-			}, { home: dshHomeDir(), onDiagnostics: (data) => state.writeSection('integrations', data) });
+			}, { home: dshHomeDir(), onDiagnostics: (data) => state.writeSection('integrations', data), onCodexProgress: (data) => state.writeSection('codexProgress', data) });
 			localActivity.updateHost(pendingHostActivity);
 		}).catch((error) => console.warn('[codex-pet] 双联动监听未能启动：' + error.message));
 		return () => { disposed = true; localActivity?.stop(); localActivity = null; };
@@ -3089,7 +3087,9 @@ function apply(ctx) {
 				status: 405,
 				obj: { ok: false }
 			};
-			await writeFile(join(dshHomeDir(), "manager-request.json"), JSON.stringify({
+			const input = typeof body === "string" ? JSON.parse(body || "{}") : body;
+      if (input?.view && input.view !== "reminders") return { kind: "json", status: 400, obj: { ok: false } };
+      await writeFile(join(dshHomeDir(), "manager-request.json"), JSON.stringify({
 				id: Date.now(),
 				view: "reminders"
 			}), "utf8");
@@ -3099,33 +3099,7 @@ function apply(ctx) {
 				obj: { ok: true }
 			};
 		}
-		if (rest === "reminders" || rest === "control") try {
-			if (rest === "control") {
-				if (method !== "POST") return {
-					kind: "json",
-					status: 405,
-					obj: { error: "method not allowed" }
-				};
-				const payload = JSON.parse(body || "{}");
-				if (payload.action === "consume") {
-					const accepted = controlRequest > 0 && payload.id === controlRequest;
-					if (accepted) controlRequest = 0;
-					return {
-						kind: "json",
-						status: 200,
-						obj: {
-							ok: true,
-							accepted
-						}
-					};
-				}
-				controlRequest = Date.now();
-				return {
-					kind: "json",
-					status: 200,
-					obj: { ok: true }
-				};
-			}
+		if (rest === "reminders") try {
 			if (!reminders) reminders = import(new URL("../runtime/reminders.mjs", import.meta.url).href).then((runtime) => runtime.reminderService(dshHomeDir())).catch((error) => {
 				reminders = void 0;
 				throw error;
@@ -3140,10 +3114,7 @@ function apply(ctx) {
 			return {
 				kind: "json",
 				status: 200,
-				obj: {
-					...result,
-					controlRequest
-				},
+				obj: result,
 				headers: { "cache-control": "no-store" }
 			};
 		} catch (e) {
@@ -3756,7 +3727,7 @@ function apply(ctx) {
 			body: "dsh-pet: unsupported animation format (expected .webm or .mov)"
 		};
 		if (petId === CHARACTER_ASSET_ROOT) {
-			const media = resolveCharacterAsset(dshHomeDir(), fileName);
+			const media = resolveCharacterAsset(dshHomeDir(), fileName, petId);
 			return media ? { kind: "file", file: media, contentType: "video/webm" } : { kind: "text", status: 404, body: "character asset not found" };
 		}
 		const extraAnimDir = resolveAsset(petConfigDir, petId + "-animation");

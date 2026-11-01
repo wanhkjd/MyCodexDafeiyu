@@ -67,15 +67,12 @@ export function conversations(dir,generate){
   const user={role:'user',content:text,ts:Date.now()};session.messages.push(user);if(session.messages.length===1)session.title=text.slice(0,22);save();
   pending={sessionId:session.id,text:'',startedAt:Date.now()};
   try{
-   // A video link: with her Bilibili life on, she reads (and looks at) the video first. It goes in front of your words, never into the history.
-   const material=extras.bili?await extras.bili.chatMaterial(text).catch(()=>''):'';
-   const now=settings.shareState?[persona.describeState(extras.state),extras.bili?.todayLine()].filter(Boolean).join('\n'):'';
-   const result=await reply(text,history,dir,{mode:data.mode,memory:data.useMemory?profile().text:'',persona:persona.buildPersona(settings,{provider:providerOf()}),state:[now,material].filter(Boolean).join('\n\n'),onDelta:delta=>{pending.text+=String(delta??'');}});
+   const result=await reply(text,history,dir,{mode:data.mode,memory:data.useMemory?profile().text:'',persona:persona.buildPersona(settings,{provider:providerOf()}),state:settings.shareState?persona.describeState(extras.state):'',onDelta:delta=>{pending.text+=String(delta??'');}});
    if(!result.ok){user.error=result.message||'回复失败';save();return result;}
    // Action tags never reach the history or the bubble; the pet just does the action.
    const taken=persona.takeAction(result.text, Math.random, settings.character);
-   session.messages.push({role:'assistant',content:taken.text,model:result.model,ts:Date.now(),character:settings.character||'dafeiyu',characterName:settings.name||'大肥鱼'});
-   save();return {...result,text:taken.text,action:settings.actions?taken.action:null,animation:settings.actions?taken.animation:null};
+   session.messages.push({role:'assistant',content:taken.text,model:result.model,ts:Date.now(),character:settings.character||'dafeiyu',characterName:settings.name||({bailong:'白龙'}[settings.character])||'大肥鱼'});
+   save();return {...result,text:taken.text,action:settings.actions?taken.action:null,animation:settings.actions?taken.animation:null,broadcastAnimation:settings.actions?persona.sharedActionAnimation(taken.action,taken.animation):null};
   }catch(e){user.error=e.message;save();return {ok:false,message:e.message};}finally{pending=null;}
  };
  const service={snapshot,command,isBusy:()=>!!pending};stores.set(dir,service);return service;

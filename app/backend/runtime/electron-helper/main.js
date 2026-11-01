@@ -63,7 +63,7 @@ const { createRiceFeeding } = require('./rice-feeding.js');
 const { normalizeDisplaySettings, displayPolicy } = require('../../../display-settings.cjs');
 const { createDisplayMonitor } = require('../../../windows-display-monitor.cjs');
 
-// 允许无用户手势直接播放（余额动画等）
+// 允许无用户手势直接播放桌宠动画
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 // 显式定名：Helper 是被 `electron.exe <main.js>` 直接拉起的，Electron 取不到 app 名会回落成
@@ -308,32 +308,14 @@ app.on('before-quit', () => riceFeeding.cancelAll());
 /** win.id -> 上一次**请求**的内容区矩形（"x,y,w,h"）：pet:set-bounds 的去重基准，见那里的注释 */
 const lastRequestedBounds = new Map();
 
-/**
- * 宠物间碰撞 broker 状态：petId -> { x, y, vx, vy, size, bottomPad }。
- * 来源：pet:set-bounds（位置+尺寸+速度，随漫游/拖拽/静止保真上报，每帧一次）+
- *       pet:report-flight（飞行中每 ~30ms 高频补充速度）。
- * 任何更新都广播全量给所有窗口——每窗飞行方用它做跨窗碰撞检测（滞后 ≤ 1 帧，可接受）。
- */
-const petStates = new Map();
-
-/** 把当前全量宠物状态广播给所有窗口（碰撞检测的共享站场） */
-function broadcastPetStates() {
-  const states = {};
-  for (const [pid, s] of petStates) {
-    states[pid] = { x: s.x, y: s.y, vx: s.vx, vy: s.vy, size: s.size, bottomPad: s.bottomPad };
-  }
-  for (const win of windows.values()) {
-    if (!win.isDestroyed()) win.webContents.send('pet:flight-states', states);
-  }
-}
-
-/** 记录/更新一只宠物的状态并广播 */
-function updatePetState(petId, partial) {
-  if (nonCollidingPets.has(petId)) return;
-  const prev = petStates.get(petId) || { x: 0, y: 0, vx: 0, vy: 0, size: 0, bottomPad: 0 };
-  petStates.set(petId, Object.assign({}, prev, partial));
-  broadcastPetStates();
-}
+const { createCollisionBroker } = require('./pet-collision.cjs');
+const collisionBroker = createCollisionBroker({
+  isAvailable: id => {
+    const win = windows.get(id);
+    return !!win && !win.isDestroyed() && win.isVisible() && !inputBusy.get(win.id) && !forcePassThrough;
+  },
+  onHit: (id, velocity) => { const win = windows.get(id); if (win && !win.isDestroyed()) win.webContents.send('pet:hit', velocity); },
+});
 
 /**
  * 每窗口当前穿透状态（true = 整窗点击穿透）。所有 setIgnoreMouseEvents 只经本文件
@@ -368,26 +350,6 @@ const inputBusy = new Map();
 const inputRegions = new Map();
 const {resetWindowInput,transitionWindow}=require('./visibility-recovery');
 const recoveryTimes=new Map();
-let gameWindow=null,gameInfo=null,gameOwner=null;
-function stopGame(position) {
-  const target=gameWindow;if(!target)return;
-  const oldOwner=gameOwner;
-  const finalPosition={...gameInfo};
-  if(position && [position.x,position.y].every(Number.isFinite)) {
-    finalPosition.x=gameInfo.area.x+position.x;finalPosition.y=gameInfo.area.y+position.y;
-    if(position.facing===1||position.facing===-1)finalPosition.facing=position.facing===1?'right':'left';
-  }
-  gameWindow=null;
-  gameOwner=null;
-  // Create the replacement first: no zero-window gap and no reused native
-  // capture, pointer hook, renderer flags or pending animation callbacks.
-  if(oldOwner && !oldOwner.isDestroyed()) {
-    createPetWindows({petId:finalPosition.petId,position:finalPosition});
-    oldOwner.destroy();
-  }
-  if(!target.isDestroyed())target.destroy();
-  console.log('[pet-control] fresh pet window restored');
-}
 function resetInput(win) {
   resetWindowInput(win,[inputBusy,inputRegions,offBodyMs,lastRequestedBounds],setWindowIgnore);
 }
@@ -403,7 +365,7 @@ function applyDisplayPolicy() {
     refreshDisplayControl();
     if (displayOptions.autoHideFullscreen || displayOptions.cursorHidePassThrough) displayMonitor.start();
     else displayMonitor.stop();
-    const policy = displayPolicy({ visible: manualVisible, settings: displayOptions, native: displayMonitor.current(), game: !!gameWindow });
+    const policy = displayPolicy({ visible: manualVisible, settings: displayOptions, native: displayMonitor.current() });
     const optionsKey = JSON.stringify(displayOptions);
     const optionsChanged = appliedDisplayOptions !== optionsKey;
     appliedDisplayOptions = optionsKey;
@@ -428,7 +390,6 @@ function applyDisplayPolicy() {
       if (forcePassThrough && windowIgnore.get(win.id) !== true) setWindowIgnore(win, true);
     }
     riceFeeding.updateTopmost();
-    if (!manualVisible && gameWindow) stopGame();
   } finally { applyingDisplayPolicy = false; }
 }
 app.on('before-quit', () => { displayQuitting = true; displayMonitor.stop(); });
@@ -472,7 +433,6 @@ function petsFromEnv() {
   return [{ id: 'main', size: 462, index: 0 }];
 }
 
-const nonCollidingPets = new Set(petsFromEnv().filter(p => p.geometry).map(p => p.id));
 
 /** 窗口初始尺寸 = 宠物包围盒 + 四周外扩余量（4×0.5×size，与 renderer 的 WINDOW_MARGIN_RATIO 一致；
  *  renderer 首帧 set-bounds 会按真实配置精确覆盖，这里只是避免启动瞬间的尺寸跳变）。 */
@@ -624,7 +584,7 @@ function createPetWindows(replacement) {
     win.on('closed', () => {
       clearInterval(pointerTimer);
       clearInterval(topmostTimer);
-      if(windows.get(pet.id)===win)windows.delete(pet.id);
+      if(windows.get(pet.id)===win) { windows.delete(pet.id); collisionBroker.remove(pet.id); }
       lastRequestedBounds.delete(win.id);
       windowIgnore.delete(win.id);
       inputBusy.delete(win.id);
@@ -788,7 +748,7 @@ app.whenReady().then(() => {
   );
 
   if (BRIDGE) {
-    // 自定义 scheme 接住渲染端全部请求（配置/余额/碎碎念/广播/素材）
+    // 自定义 scheme 接住渲染端全部请求（配置/碎碎念/广播/素材）
     protocol.handle('dsh-pet-bridge', (request) =>
       handleBridgeRequest(request).catch((e) => {
         console.error('[dsh-pet-desktop-helper] bridge handler error:', String(e && e.message ? e.message : e));
@@ -837,55 +797,17 @@ app.whenReady().then(() => {
       // 位置 + 尺寸 + 速度一并登记：set-bounds 是每次位置变化都会触发的全量上报
       // （此前只更新 x/y，静止宠物 size 永远为 0，跨窗碰撞检测 `!o.size` 直接跳过它）；
       // 速度取渲染端上报值（飞行中实时、静止/拖拽 = 0），落地后不再残留旧飞行速度。
-      updatePetState(petId, {
+      collisionBroker.update(petId, {
         x: Number.isFinite(bx) ? bx : x,
         y: Number.isFinite(by) ? by : y,
-        size: Number.isFinite(size) && size > 0 ? size : petStates.get(petId)?.size || 0,
-        bottomPad: Number.isFinite(bottomPad) && bottomPad > 0 ? bottomPad : petStates.get(petId)?.bottomPad || 0,
+        size: Number.isFinite(size) && size > 0 ? size : 0,
+        bottomPad: Number.isFinite(bottomPad) && bottomPad > 0 ? bottomPad : 0,
         vx: Number.isFinite(vx) ? vx : 0,
         vy: Number.isFinite(vy) ? vy : 0,
+        hitRect: bounds.hitRect, collidable: bounds.collidable === true, collisionOptions: bounds.collisionOptions,
       });
     }
   });
-  ipcMain.handle('pet:game-init',event=>event.sender===gameWindow?.webContents?gameInfo:null);
-  ipcMain.on('pet:game-position',(event,position)=>{
-    if(event.sender!==gameWindow?.webContents || !position || ![position.x,position.y].every(Number.isFinite))return;
-    gameInfo.x=gameInfo.area.x+position.x;gameInfo.y=gameInfo.area.y+position.y;
-    if(position.facing===1||position.facing===-1)gameInfo.facing=position.facing===1?'right':'left';
-  });
-  ipcMain.on('pet:game-exit',(event,position)=>{if(event.sender===gameWindow?.webContents)stopGame(position);});
-
-  // 飞行状态上报（碰撞站场）：renderer 飞行中每 ~30ms 上报一次自己的位置/速度/尺寸
-  ipcMain.on('pet:report-flight', (event, state) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || win.isDestroyed()) return;
-    const petId = [...windows.keys()].find((id) => windows.get(id) === win);
-    if (!petId) return;
-    const s = state || {};
-    const x = Number(s.x);
-    const y = Number(s.y);
-    const vx = Number(s.vx);
-    const vy = Number(s.vy);
-    const size = Number(s.size);
-    const bottomPad = Number(s.bottomPad);
-    if (![x, y, vx, vy, size, bottomPad].every(Number.isFinite)) return;
-    updatePetState(petId, { x, y, vx, vy, size, bottomPad });
-  });
-
-  // 碰撞结果转发：飞行方窗口检测到撞到 targetId → 把动量结果（目标新初速）转发给目标窗口
-  ipcMain.on('pet:collide-result', (event, payload) => {
-    const targetId = payload && typeof payload === 'object' ? String(payload.targetId || '') : '';
-    const vx = Number(payload?.vx);
-    const vy = Number(payload?.vy);
-    if (!targetId || !Number.isFinite(vx) || !Number.isFinite(vy)) return;
-    const sourceId = [...windows.keys()].find(id => windows.get(id)?.webContents === event.sender);
-    if (!sourceId || nonCollidingPets.has(sourceId) || nonCollidingPets.has(targetId)) return;
-    const targetWin = windows.get(targetId);
-    if (targetWin && !targetWin.isDestroyed()) {
-      targetWin.webContents.send('pet:hit', { vx, vy });
-    }
-  });
-
   // 点击穿透翻转：renderer 在光标进/出身体命中区时上报；穿透期间仍保留 forward（mousemove 继续转发）。
   // 兜底轮询（见 createPetWindows）也走同一个出口 setWindowIgnore，两条通道共享同一份镜像状态。
   ipcMain.on('pet:set-interactive', (event, interactive) => {
